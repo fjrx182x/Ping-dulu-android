@@ -1,0 +1,6 @@
+{
+  "name": "PingDulu Field Ops",
+  "description": "Aplikasi Android offline-first untuk teknisi lapangan IT & Jaringan dengan 7-Day Rolling Schedule, Hero Active Job, dan 2-Column Kanban Grid.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

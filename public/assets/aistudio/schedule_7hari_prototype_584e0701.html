@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PingDulu Field Ops - Behance UI/UX 7-Day Schedule Prototype</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      height: 4px;
+      width: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    .dark .custom-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+    }
+    .hero-gradient {
+      background: linear-gradient(135deg, #1e2875 0%, #36459B 60%, #4353b3 100%);
+    }
+  </style>
+</head>
+<body id="appBody" class="bg-slate-100 text-slate-800 p-2 sm:p-6 flex justify-center items-center min-h-screen transition-colors duration-200">
+
+  <!-- Mobile Frame Container (Behance iPhone / Modern Android Aspect) -->
+  <div class="w-full max-w-md bg-[#F8FAFC] dark:bg-[#0F172A] border border-slate-200 dark:border-slate-800 rounded-[36px] shadow-2xl overflow-hidden flex flex-col h-[840px] relative transition-colors duration-200">
+    
+    <!-- SYSTEM STATUS & TOP APP BAR -->
+    <header class="bg-white/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800/80 px-4 pt-3.5 pb-2.5 backdrop-blur shrink-0 z-10 transition-colors">
+      <!-- Status Top Row -->
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <!-- Hamburger / Menu Drawer Trigger -->
+          <button onclick="toggleMenu()" class="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+          </button>
+          <div class="flex items-center gap-1.5">
+            <div class="w-7 h-7 rounded-lg bg-[#36459B] flex items-center justify-center font-extrabold text-white text-[11px] shadow-sm">
+              PD
+            </div>
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-extrabold text-slate-900 dark:text-white tracking-tight">PingDulu</span>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-[#36459B] dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">FIELD OPS</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Quick Actions: Theme, Notification, Profile -->
+        <div class="flex items-center gap-1.5">
+          <!-- Dark/Light Theme Toggle -->
+          <button id="btnThemeToggle" title="Toggle Tema" class="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-amber-400 transition-colors">
+            <svg id="themeIconSun" class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+            <svg id="themeIconMoon" class="w-4 h-4 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+          </button>
+
+          <!-- Notification Bell with Ping Count -->
+          <div class="relative">
+            <button onclick="alert('Notifikasi: 1 Tiket Baru P1 & 1 Rekan memanggil Anda')" class="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+            </button>
+            <span class="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-pulse">2</span>
+          </div>
+
+          <!-- User Avatar -->
+          <div class="w-7 h-7 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-bold text-white shadow-sm ring-2 ring-emerald-500/20" title="Fajar (Admin / Lead Tech)">
+            F
+          </div>
+        </div>
+      </div>
+
+      <!-- Greeting & Server Sync Banner -->
+      <div class="flex items-center justify-between pt-1">
+        <div>
+          <h2 class="text-sm font-bold text-slate-900 dark:text-white leading-tight">Selamat Pagi, Fajar 👋</h2>
+          <p class="text-[10px] text-slate-500 dark:text-slate-400">Jadwal Agenda Lapangan 7 Hari</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button id="btnSyncTrigger" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 text-[10px] font-semibold transition-all hover:bg-emerald-100 dark:hover:bg-emerald-900/40 cursor-pointer shadow-xs">
+            <span id="syncDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span id="syncText">Tersinkron</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- SCROLLABLE BODY AREA -->
+    <div class="flex-1 overflow-y-auto custom-scroll px-3.5 pt-3 pb-20 space-y-3.5">
+
+      <!-- =================================================================== -->
+      <!-- 1. HERO ACTIVE JOB CARD (Cobalt Navy #36459B - Jonathan Herlim Behance) -->
+      <!-- =================================================================== -->
+      <section id="heroCardSection" class="hero-gradient rounded-[22px] p-4 text-white shadow-xl shadow-indigo-950/20 relative overflow-hidden transition-transform duration-200">
+        <!-- Background subtle decorative pattern -->
+        <div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-white/5 blur-xl pointer-events-none"></div>
+        <div class="absolute right-3 top-3 opacity-15">
+          <svg class="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z"/></svg>
+        </div>
+
+        <!-- Header Row inside Hero Card -->
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-1.5">
+            <span class="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-wider bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-md text-white border border-white/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping"></span>
+              PEKERJAAN AKTIF SAAT INI
+            </span>
+          </div>
+          <span class="text-[10px] font-black tracking-wider bg-white/10 px-2 py-0.5 rounded-md text-indigo-100 border border-white/20">
+            NET-1
+          </span>
+        </div>
+
+        <!-- Task Title -->
+        <h3 id="heroTitle" class="text-sm font-extrabold text-white leading-snug mb-2.5 drop-shadow-xs">
+          Troubleshooting Wi-Fi Access Point Gedung B
+        </h3>
+
+        <!-- Live Stopwatch Timer Row -->
+        <div class="flex items-center justify-between bg-black/25 backdrop-blur-md rounded-xl px-3 py-2 border border-white/10 mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300">
+              <svg class="w-4 h-4 animate-spin text-emerald-300" style="animation-duration: 4s;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <div>
+              <p class="text-[9px] text-indigo-200 font-medium uppercase tracking-wide">Live Waktu Pengerjaan</p>
+              <p id="heroTimerDisplay" class="text-sm font-black tracking-widest text-emerald-300 font-mono">00:45:12</p>
+            </div>
+          </div>
+
+          <!-- Play / Pause Action Button -->
+          <button id="btnHeroTimerToggle" class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 active:scale-95 text-white font-bold text-[11px] backdrop-blur-md border border-white/30 transition-all cursor-pointer">
+            <span id="heroTimerIcon">⏸️</span>
+            <span id="heroTimerBtnText">Jeda</span>
+          </button>
+        </div>
+
+        <!-- SLA, Location & Multi-Assignees Info -->
+        <div class="flex items-center justify-between text-[11px] mb-3 text-indigo-100">
+          <div class="flex items-center gap-1">
+            <svg class="w-3.5 h-3.5 text-amber-300" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+            <span>Target SLA: <strong class="text-white font-bold">11:30 WIB</strong></span>
+          </div>
+          <div class="flex items-center gap-1">
+            <svg class="w-3.5 h-3.5 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg>
+            <span class="truncate max-w-[130px]">Ruang Server Lt. 2</span>
+          </div>
+        </div>
+
+        <!-- Multi-Assignee & Inset Checklist Sub-panel (Behance Spec) -->
+        <div class="bg-white/10 backdrop-blur-md rounded-xl p-2.5 border border-white/15">
+          <div class="flex items-center justify-between mb-2">
+            <!-- Stacked Avatars Team -->
+            <div class="flex items-center -space-x-2">
+              <div class="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-[10px] font-black text-white ring-2 ring-indigo-900 shadow-sm" title="Fajar (PIC Lead)">
+                F
+              </div>
+              <div class="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center text-[10px] font-black text-white ring-2 ring-indigo-900 shadow-sm" title="Budi Santoso">
+                B
+              </div>
+              <span class="text-[10px] text-white font-semibold pl-3">Fajar + Budi</span>
+            </div>
+
+            <!-- Checklist Status -->
+            <span class="text-[10px] font-bold text-emerald-200 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-400/40">
+              Checklist 3/5 (60%)
+            </span>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="w-full bg-black/30 rounded-full h-1.5 overflow-hidden mb-2">
+            <div class="bg-gradient-to-r from-emerald-400 to-teal-300 h-1.5 rounded-full" style="width: 60%"></div>
+          </div>
+
+          <!-- Quick Action Buttons for Field Tech -->
+          <div class="grid grid-cols-2 gap-2 pt-1 border-t border-white/10 text-[10px]">
+            <button onclick="alert('Membuka rute Google Maps menuju Gedung B...')" class="flex items-center justify-center gap-1 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white font-semibold transition-colors">
+              <svg class="w-3 h-3 text-sky-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
+              <span>Rute Lokasi</span>
+            </button>
+            <button onclick="openDetailModal(1)" class="flex items-center justify-center gap-1 py-1 rounded-lg bg-emerald-500/80 hover:bg-emerald-500 text-white font-bold transition-colors">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+              <span>Lembar Kerja</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- 2. 7-DAY ROLLING HORIZON DATE STRIP (Horizontal Scrollable)         -->
+      <!-- =================================================================== -->
+      <section>
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-[#36459B] dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Jadwal 7 Hari Bergulir</span>
+          </div>
+          <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400" id="dateHorizonSpan">20 Nov - 26 Nov 2026</span>
+        </div>
+
+        <!-- 7-Day Date Chips Container -->
+        <div id="dayStripContainer" class="flex gap-2 overflow-x-auto custom-scroll pb-1">
+          <!-- Populated by JavaScript -->
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- 3. STATUS KANBAN FILTER PILLS (Jonathan Herlim Behance Signature)    -->
+      <!-- =================================================================== -->
+      <section>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filter Status Tiket</span>
+          <!-- Grid vs List View Toggle -->
+          <div class="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700">
+            <button id="btnLayoutGrid" onclick="setLayoutMode('grid')" title="Tampilan Grid 2-Kolom (Khas Behance)" class="p-1 rounded-md text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 shadow-xs transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+            </button>
+            <button id="btnLayoutList" onclick="setLayoutMode('list')" title="Tampilan List 1-Kolom" class="p-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Chips with Behance Color Palette -->
+        <div class="flex items-center gap-1.5 overflow-x-auto custom-scroll pb-1">
+          <!-- All Filter -->
+          <button onclick="setStatusFilter('ALL')" id="filterBtnALL" class="px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer whitespace-nowrap bg-[#36459B] text-white border-[#36459B] shadow-sm">
+            Semua (<span id="countALL">6</span>)
+          </button>
+
+          <!-- Backlog / Lilac #9B9AE1 -->
+          <button onclick="setStatusFilter('BACKLOG')" id="filterBtnBACKLOG" class="px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer whitespace-nowrap bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-[#9B9AE1]">
+            <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #9B9AE1;"></span>
+            Antrean (<span id="countBACKLOG">3</span>)
+          </button>
+
+          <!-- In Progress / Sky Blue #6DA7E8 -->
+          <button onclick="setStatusFilter('IN_PROGRESS')" id="filterBtnIN_PROGRESS" class="px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer whitespace-nowrap bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-[#6DA7E8]">
+            <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #6DA7E8;"></span>
+            Proses (<span id="countIN_PROGRESS">1</span>)
+          </button>
+
+          <!-- Completed / Mint Green #52C58F -->
+          <button onclick="setStatusFilter('DONE')" id="filterBtnDONE" class="px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer whitespace-nowrap bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-[#52C58F]">
+            <span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #52C58F;"></span>
+            Selesai (<span id="countDONE">2</span>)
+          </button>
+        </div>
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- 4. 2-COLUMN RESPONSIVE CARD GRID (DNA Desain Behance Jonathan Herlim) -->
+      <!-- =================================================================== -->
+      <section>
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-slate-800 dark:text-slate-200" id="currentSectionTitle">Daftar Tiket: Kamis, 20 Nov 2026</span>
+          <span class="text-[10px] text-slate-500 dark:text-slate-400 font-medium" id="currentSectionCount">2 tiket terpasang</span>
+        </div>
+
+        <!-- The Container switches between grid-cols-2 and space-y-2 -->
+        <div id="tasksDisplayContainer" class="grid grid-cols-2 gap-2.5">
+          <!-- Populated by JavaScript -->
+        </div>
+      </section>
+
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 5. BOTTOM NAVIGATION BAR (Thumb Zone Ergonomic - Behance Style)      -->
+    <!-- =================================================================== -->
+    <nav class="absolute bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 px-3 py-2 backdrop-blur flex items-center justify-around z-20 transition-colors">
+      <!-- Tab 1: Beranda / Agenda (Active) -->
+      <button class="flex flex-col items-center gap-0.5 text-[#36459B] dark:text-indigo-400 font-bold transition-all">
+        <div class="p-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/60">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+        </div>
+        <span class="text-[10px]">Agenda</span>
+      </button>
+
+      <!-- Tab 2: Papan Tiket (Kanban Columns) -->
+      <button onclick="alert('Membuka Tampilan Papan Kanban Full (Backlog, In Progress, Review, Done)...')" class="flex flex-col items-center gap-0.5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 font-medium transition-all">
+        <div class="p-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path></svg>
+        </div>
+        <span class="text-[10px]">Kanban</span>
+      </button>
+
+      <!-- Center Floating Quick Add Ticket Button -->
+      <button onclick="openQuickAddModal()" class="w-10 h-10 rounded-2xl bg-[#36459B] hover:bg-indigo-700 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 -translate-y-2 transition-all border-2 border-white dark:border-slate-900" title="Buat Tiket Baru">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
+      </button>
+
+      <!-- Tab 3: SPK / Riwayat -->
+      <button onclick="alert('Membuka Riwayat SPK & Laporan Selesai...')" class="flex flex-col items-center gap-0.5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 font-medium transition-all">
+        <div class="p-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        </div>
+        <span class="text-[10px]">SPK</span>
+      </button>
+
+      <!-- Tab 4: Pengaturan / Sync -->
+      <button onclick="alert('Menu Pengaturan & Status Sinkronisasi Server PingDulu')" class="flex flex-col items-center gap-0.5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 font-medium transition-all">
+        <div class="p-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        </div>
+        <span class="text-[10px]">Pengaturan</span>
+      </button>
+    </nav>
+
+    <!-- =================================================================== -->
+    <!-- 6. DETAIL MODAL / WORK ORDER SHEET                                  -->
+    <!-- =================================================================== -->
+    <div id="detailModalBackdrop" class="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 hidden transition-opacity">
+      <div id="detailModalContent" class="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-4 max-h-[85vh] overflow-y-auto custom-scroll space-y-3 transform transition-transform">
+        <!-- Close button & title -->
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+          <div class="flex items-center gap-1.5">
+            <span id="modalTicketCode" class="text-xs font-black px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-[#36459B] dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">NET-1</span>
+            <span id="modalPriority" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/30">P1 CRITICAL</span>
+          </div>
+          <button onclick="closeDetailModal()" class="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+
+        <h3 id="modalTitle" class="text-sm font-bold text-slate-900 dark:text-white leading-snug">Title here</h3>
+        <p id="modalLocation" class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg>
+          <span id="modalLocationText">Location</span>
+        </p>
+
+        <!-- Multi-Assignee Section in Modal -->
+        <div class="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-2.5 border border-slate-100 dark:border-slate-800">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1.5">Teknisi Bertugas (Multi-Assignee)</span>
+          <div id="modalAssigneesList" class="flex flex-wrap gap-1.5">
+            <!-- Injected by JS -->
+          </div>
+        </div>
+
+        <!-- Checklist Section in Modal -->
+        <div>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1.5">Checklist Pengerjaan Lapangan</span>
+          <div id="modalChecklistContainer" class="space-y-1.5">
+            <!-- Injected by JS -->
+          </div>
+        </div>
+
+        <!-- Action Buttons inside Modal -->
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2">
+          <button id="modalActionTimer" onclick="actionToggleTimerFromModal()" class="py-2 rounded-xl bg-[#36459B] text-white font-bold text-xs flex items-center justify-center gap-1 shadow-md">
+            <span>⏱️ Mulai Stopwatch</span>
+          </button>
+          <button id="modalActionComplete" onclick="actionCompleteTaskFromModal()" class="py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-md">
+            <span>✅ Selesai Pengerjaan</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // STATE & DATASET MAPPING (Synchronized with PingDulu Backend Schema)
+    // =========================================================================
+    const scheduleDays = [
+      { epochDay: 20776, dayName: 'KAM', dateNum: 20, fullDate: 'Kamis, 20 Nov 2026', isToday: true },
+      { epochDay: 20777, dayName: 'JUM', dateNum: 21, fullDate: 'Jumat, 21 Nov 2026', isToday: false },
+      { epochDay: 20778, dayName: 'SAB', dateNum: 22, fullDate: 'Sabtu, 22 Nov 2026', isToday: false },
+      { epochDay: 20779, dayName: 'MIN', dateNum: 23, fullDate: 'Minggu, 23 Nov 2026', isToday: false },
+      { epochDay: 20780, dayName: 'SEN', dateNum: 24, fullDate: 'Senin, 24 Nov 2026', isToday: false },
+      { epochDay: 20781, dayName: 'SEL', dateNum: 25, fullDate: 'Selasa, 25 Nov 2026', isToday: false },
+      { epochDay: 20782, dayName: 'RAB', dateNum: 26, fullDate: 'Rabu, 26 Nov 2026', isToday: false }
+    ];
+
+    let tasksData = [
+      {
+        id: 1,
+        ticket_code: 'NET-1',
+        title: 'Troubleshooting Wi-Fi Access Point Gedung B',
+        category: 'NET',
+        categoryColor: 'bg-indigo-50 dark:bg-indigo-950/50 text-[#36459B] dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+        epochDay: 20776,
+        timeSlot: '09:00 - 10:30',
+        priority: 'P1_CRITICAL',
+        stage: 'IN_PROGRESS',
+        assignees: [
+          { name: 'Fajar', role: 'admin', isLead: true },
+          { name: 'Budi Santoso', role: 'technician', isLead: false }
+        ],
+        checklist: [
+          { id: 101, label: 'Cek PoE Switch Port 4', is_done: true },
+          { id: 102, label: 'Uji Redaman Kabel Dropcore LAN', is_done: true },
+          { id: 103, label: 'Reboot & Konfigurasi VLAN AP', is_done: false },
+          { id: 104, label: 'Speedtest Wi-Fi Client > 50 Mbps', is_done: true },
+          { id: 105, label: 'Tanda tangan serah terima SPK', is_done: false }
+        ],
+        location: 'Ruang Server Lt. 2',
+        timerRunning: true,
+        trackedSec: 2712
+      },
+      {
+        id: 2,
+        ticket_code: 'SRV-3',
+        title: 'Maintenance Switch Core & Backup Storage NAS',
+        category: 'SRV',
+        categoryColor: 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+        epochDay: 20776,
+        timeSlot: '13:00 - 14:30',
+        priority: 'P2_HIGH',
+        stage: 'BACKLOG',
+        assignees: [
+          { name: 'Fajar', role: 'admin', isLead: true }
+        ],
+        checklist: [
+          { id: 201, label: 'Verifikasi ZFS Pool RAID-Z2', is_done: false },
+          { id: 202, label: 'Cek rotasi snapshot remote cloud', is_done: false }
+        ],
+        location: 'Data Center Rak B-04',
+        timerRunning: false,
+        trackedSec: 0
+      },
+      {
+        id: 3,
+        ticket_code: 'HRD-4',
+        title: 'Ganti Power Supply PC Desain Marketing',
+        category: 'HRD',
+        categoryColor: 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+        epochDay: 20777,
+        timeSlot: '10:00 - 11:30',
+        priority: 'P2_HIGH',
+        stage: 'BACKLOG',
+        assignees: [
+          { name: 'Budi Santoso', role: 'technician', isLead: true }
+        ],
+        checklist: [
+          { id: 301, label: 'Bongkar PSU lama 500W', is_done: false },
+          { id: 302, label: 'Pasang PSU baru 650W Bronze', is_done: false }
+        ],
+        location: 'Gedung A, Lantai 1',
+        timerRunning: false,
+        trackedSec: 0
+      },
+      {
+        id: 4,
+        ticket_code: 'ONB-8',
+        title: 'Setup & Onboarding Laptop Karyawan Baru',
+        category: 'ONB',
+        categoryColor: 'bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800',
+        epochDay: 20777,
+        timeSlot: '14:00 - 15:30',
+        priority: 'P3_NORMAL',
+        stage: 'DONE',
+        assignees: [
+          { name: 'Fajar', role: 'admin', isLead: true },
+          { name: 'Siti Viewer', role: 'viewer', isLead: false }
+        ],
+        checklist: [
+          { id: 401, label: 'Setup Akun Email & VPN Kantor', is_done: true },
+          { id: 402, label: 'Serah terima laptop ThinkPad & TTD', is_done: true }
+        ],
+        location: 'Ruang Meeting Finance',
+        timerRunning: false,
+        trackedSec: 3600
+      },
+      {
+        id: 5,
+        ticket_code: 'SEC-2',
+        title: 'Audit Port Listening Mikrotik Core Gateway',
+        category: 'SEC',
+        categoryColor: 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+        epochDay: 20780,
+        timeSlot: '09:30 - 11:00',
+        priority: 'P1_CRITICAL',
+        stage: 'BACKLOG',
+        assignees: [
+          { name: 'Fajar', role: 'admin', isLead: true }
+        ],
+        checklist: [
+          { id: 501, label: 'Disable Telnet & Port SSH standar', is_done: false },
+          { id: 502, label: 'Verifikasi Drop rule brute-force', is_done: false }
+        ],
+        location: 'Core Gateway NOC',
+        timerRunning: false,
+        trackedSec: 0
+      },
+      {
+        id: 6,
+        ticket_code: 'NET-9',
+        title: 'Tarik Kabel LAN Belden Cat6 Ruang Rapat',
+        category: 'NET',
+        categoryColor: 'bg-indigo-50 dark:bg-indigo-950/50 text-[#36459B] dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+        epochDay: 20782,
+        timeSlot: '11:00 - 12:30',
+        priority: 'P2_HIGH',
+        stage: 'DONE',
+        assignees: [
+          { name: 'Budi Santoso', role: 'technician', isLead: true },
+          { name: 'Fajar', role: 'admin', isLead: false }
+        ],
+        checklist: [
+          { id: 601, label: 'Crimping kabel RJ-45 Belden Cat6', is_done: true },
+          { id: 602, label: 'Testing kabel dengan Fluke tester', is_done: true }
+        ],
+        location: 'Server Room Rack 2',
+        timerRunning: false,
+        trackedSec: 4200
+      }
+    ];
+
+    let selectedDayEpoch = 20776; // Default to Kamis 20 Nov
+    let selectedStatusFilter = 'ALL'; // 'ALL', 'BACKLOG', 'IN_PROGRESS', 'DONE'
+    let currentLayout = 'grid'; // 'grid' (2-column Behance) or 'list' (1-column compact)
+    let activeModalTaskId = null;
+
+    // =========================================================================
+    // 1. RENDER 7-DAY ROLLING HORIZON DATE STRIP
+    // =========================================================================
+    function renderDayStrip() {
+      const container = document.getElementById('dayStripContainer');
+      container.innerHTML = '';
+
+      scheduleDays.forEach(day => {
+        const isSelected = (day.epochDay === selectedDayEpoch);
+        const dayTasks = tasksData.filter(t => t.epochDay === day.epochDay);
+        const count = dayTasks.length;
+        const hasP1 = dayTasks.some(t => t.priority === 'P1_CRITICAL');
+        const hasP2 = dayTasks.some(t => t.priority === 'P2_HIGH');
+        const allDone = count > 0 && dayTasks.every(t => t.stage === 'DONE');
+
+        let dotColor = 'bg-slate-400 dark:bg-slate-600';
+        if (hasP1) dotColor = 'bg-rose-500 ring-2 ring-rose-300 dark:ring-rose-900';
+        else if (hasP2) dotColor = 'bg-amber-400';
+        else if (allDone) dotColor = 'bg-emerald-400';
+
+        const btn = document.createElement('button');
+        btn.className = `flex flex-col items-center justify-between min-w-[54px] py-2 px-1.5 rounded-2xl border transition-all cursor-pointer ${
+          isSelected 
+            ? 'bg-[#36459B] text-white border-[#36459B] shadow-md shadow-indigo-600/30 font-bold scale-[1.03]' 
+            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/70 hover:border-indigo-300 dark:hover:border-slate-600'
+        }`;
+
+        btn.innerHTML = `
+          <span class="text-[9px] uppercase tracking-wider ${isSelected ? 'text-indigo-200 font-extrabold' : 'text-slate-400 dark:text-slate-500 font-semibold'}">${day.dayName}</span>
+          <span class="text-base font-extrabold my-0.5">${day.dateNum}</span>
+          <div class="flex items-center gap-1 mt-0.5">
+            <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
+            <span class="text-[9px] font-semibold opacity-90">${count}</span>
+          </div>
+        `;
+
+        btn.onclick = () => {
+          selectedDayEpoch = day.epochDay;
+          renderDayStrip();
+          renderTasks();
+        };
+
+        container.appendChild(btn);
+      });
+    }
+
+    // =========================================================================
+    // 2. RENDER 2-COLUMN BEHANCE GRID / LIST
+    // =========================================================================
+    function renderTasks() {
+      const container = document.getElementById('tasksDisplayContainer');
+      container.innerHTML = '';
+
+      const currentDay = scheduleDays.find(d => d.epochDay === selectedDayEpoch) || scheduleDays[0];
+      let dayTasks = tasksData.filter(t => t.epochDay === selectedDayEpoch);
+
+      // Update Filter Pill Counts
+      document.getElementById('countALL').innerText = dayTasks.length;
+      document.getElementById('countBACKLOG').innerText = dayTasks.filter(t => t.stage === 'BACKLOG').length;
+      document.getElementById('countIN_PROGRESS').innerText = dayTasks.filter(t => t.stage === 'IN_PROGRESS').length;
+      document.getElementById('countDONE').innerText = dayTasks.filter(t => t.stage === 'DONE').length;
+
+      // Filter by status if applied
+      if (selectedStatusFilter !== 'ALL') {
+        dayTasks = dayTasks.filter(t => t.stage === selectedStatusFilter);
+      }
+
+      // Update section header
+      document.getElementById('currentSectionTitle').innerText = `${currentDay.fullDate}`;
+      document.getElementById('currentSectionCount').innerText = `${dayTasks.length} tiket ditampilkan`;
+
+      // Set Grid Layout Classes
+      if (currentLayout === 'grid') {
+        container.className = 'grid grid-cols-2 gap-2.5';
+      } else {
+        container.className = 'space-y-2';
+      }
+
+      if (dayTasks.length === 0) {
+        const emptyState = document.createElement('div');
+        emptyState.className = 'col-span-2 p-6 rounded-2xl bg-white dark:bg-slate-800/60 border border-dashed border-slate-300 dark:border-slate-700 text-center space-y-1';
+        emptyState.innerHTML = `
+          <p class="text-xs font-bold text-slate-700 dark:text-slate-300">Tidak ada tiket di kategori ini</p>
+          <p class="text-[10px] text-slate-400">Pilih status lain atau jadwalkan tiket baru untuk hari ini.</p>
+        `;
+        container.appendChild(emptyState);
+        return;
+      }
+
+      dayTasks.forEach(task => {
+        const card = document.createElement('div');
+        
+        // Priority Badge styling
+        let priorityBadge = '';
+        if (task.priority === 'P1_CRITICAL') {
+          priorityBadge = '<span class="text-[8px] font-black px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">P1</span>';
+        } else if (task.priority === 'P2_HIGH') {
+          priorityBadge = '<span class="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">P2</span>';
+        } else {
+          priorityBadge = '<span class="text-[8px] font-black px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">P3</span>';
+        }
+
+        // Status border highlight
+        let statusGlow = 'border-slate-200 dark:border-slate-800';
+        if (task.stage === 'IN_PROGRESS') {
+          statusGlow = 'border-[#6DA7E8] ring-1 ring-[#6DA7E8]/40 dark:border-[#6DA7E8]/60';
+        } else if (task.stage === 'DONE') {
+          statusGlow = 'border-[#52C58F] dark:border-[#52C58F]/50';
+        }
+
+        const doneChecklist = task.checklist.filter(c => c.is_done).length;
+        const totalChecklist = task.checklist.length;
+
+        if (currentLayout === 'grid') {
+          // 2-Column Responsive Card (Behance Spec)
+          card.className = `bg-white dark:bg-slate-800/90 rounded-2xl p-2.5 border ${statusGlow} shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between h-[155px]`;
+          card.onclick = () => openDetailModal(task.id);
+
+          card.innerHTML = `
+            <div>
+              <!-- Top Row: Category Ticket Code & Priority Badge -->
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${task.categoryColor}">
+                  ${task.ticket_code}
+                </span>
+                ${priorityBadge}
+              </div>
+
+              <!-- Task Title (2 lines clamp) -->
+              <h4 class="text-[11px] font-bold text-slate-900 dark:text-white leading-tight line-clamp-2 mb-1 hover:text-[#36459B] transition-colors">
+                ${task.title}
+              </h4>
+
+              <!-- Location / Time Note -->
+              <div class="flex items-center gap-1 text-[9px] text-slate-400 mb-1">
+                <svg class="w-2.5 h-2.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg>
+                <span class="truncate">${task.location}</span>
+              </div>
+            </div>
+
+            <!-- Bottom Row: Scheduled Time & Stacked Avatars -->
+            <div class="pt-1.5 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
+              <span class="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
+                <svg class="w-2.5 h-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>${task.timeSlot}</span>
+              </span>
+
+              <!-- Stacked Avatars Multi-Assignees -->
+              <div class="flex items-center -space-x-1.5">
+                ${task.assignees.map(a => `
+                  <span class="w-4.5 h-4.5 rounded-full text-[8px] font-black text-white flex items-center justify-center ring-1 ring-white dark:ring-slate-800 ${
+                    a.name === 'Fajar' ? 'bg-emerald-600' : 'bg-[#36459B]'
+                  }" title="${a.name}">${a.name.charAt(0)}</span>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        } else {
+          // List 1-Column Compact Row
+          card.className = `bg-white dark:bg-slate-800/90 rounded-2xl p-3 border ${statusGlow} shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-2`;
+          card.onclick = () => openDetailModal(task.id);
+
+          card.innerHTML = `
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5 mb-1">
+                <span class="text-[9px] font-extrabold px-1.5 py-0.2 rounded border ${task.categoryColor}">
+                  ${task.ticket_code}
+                </span>
+                ${priorityBadge}
+                <span class="text-[9px] text-slate-400 font-semibold">${task.timeSlot}</span>
+              </div>
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white truncate">${task.title}</h4>
+              <p class="text-[10px] text-slate-400 truncate">${task.location}</p>
+            </div>
+
+            <!-- Avatars & Checklist count -->
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-[9px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">
+                ${doneChecklist}/${totalChecklist}
+              </span>
+              <div class="flex items-center -space-x-1.5">
+                ${task.assignees.map(a => `
+                  <span class="w-5 h-5 rounded-full text-[9px] font-black text-white flex items-center justify-center ring-1 ring-white dark:ring-slate-800 ${
+                    a.name === 'Fajar' ? 'bg-emerald-600' : 'bg-[#36459B]'
+                  }" title="${a.name}">${a.name.charAt(0)}</span>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        container.appendChild(card);
+      });
+    }
+
+    // =========================================================================
+    // 3. FILTER PILL LOGIC (Status Pills: All, Lilac, Sky Blue, Mint Green)
+    // =========================================================================
+    function setStatusFilter(status) {
+      selectedStatusFilter = status;
+
+      const filters = ['ALL', 'BACKLOG', 'IN_PROGRESS', 'DONE'];
+      filters.forEach(f => {
+        const btn = document.getElementById(`filterBtn${f}`);
+        if (!btn) return;
+        if (f === status) {
+          btn.className = 'px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer whitespace-nowrap bg-[#36459B] text-white border-[#36459B] shadow-sm';
+        } else {
+          btn.className = 'px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer whitespace-nowrap bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300';
+        }
+      });
+
+      renderTasks();
+    }
+
+    // =========================================================================
+    // 4. LAYOUT SWITCHER (2-Column Grid vs 1-Column List)
+    // =========================================================================
+    function setLayoutMode(mode) {
+      currentLayout = mode;
+      const btnGrid = document.getElementById('btnLayoutGrid');
+      const btnList = document.getElementById('btnLayoutList');
+
+      if (mode === 'grid') {
+        btnGrid.className = 'p-1 rounded-md text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 shadow-xs transition-all';
+        btnList.className = 'p-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all';
+      } else {
+        btnList.className = 'p-1 rounded-md text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 shadow-xs transition-all';
+        btnGrid.className = 'p-1 rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all';
+      }
+
+      renderTasks();
+    }
+
+    // =========================================================================
+    // 5. HERO TIMER TICKING LOGIC (Live Stopwatch)
+    // =========================================================================
+    let heroTask = tasksData[0]; // NET-1
+    let heroTimerInterval = null;
+
+    function formatTime(sec) {
+      const hrs = Math.floor(sec / 3600);
+      const mins = Math.floor((sec % 3600) / 60);
+      const secs = sec % 60;
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function startHeroTimer() {
+      if (heroTimerInterval) clearInterval(heroTimerInterval);
+      heroTimerInterval = setInterval(() => {
+        if (heroTask && heroTask.timerRunning) {
+          heroTask.trackedSec++;
+          document.getElementById('heroTimerDisplay').innerText = formatTime(heroTask.trackedSec);
+        }
+      }, 1000);
+    }
+
+    document.getElementById('btnHeroTimerToggle').onclick = () => {
+      heroTask.timerRunning = !heroTask.timerRunning;
+      const icon = document.getElementById('heroTimerIcon');
+      const text = document.getElementById('heroTimerBtnText');
+      if (heroTask.timerRunning) {
+        icon.innerText = '⏸️';
+        text.innerText = 'Jeda';
+      } else {
+        icon.innerText = '▶️';
+        text.innerText = 'Lanjut';
+      }
+    };
+
+    // =========================================================================
+    // 6. DETAIL MODAL & CHECKLIST INTERACTION
+    // =========================================================================
+    function openDetailModal(taskId) {
+      activeModalTaskId = taskId;
+      const task = tasksData.find(t => t.id === taskId);
+      if (!task) return;
+
+      document.getElementById('modalTicketCode').innerText = task.ticket_code;
+      document.getElementById('modalTitle').innerText = task.title;
+      document.getElementById('modalLocationText').innerText = task.location;
+
+      // Assignees
+      const assigneesContainer = document.getElementById('modalAssigneesList');
+      assigneesContainer.innerHTML = '';
+      task.assignees.forEach(a => {
+        const chip = document.createElement('div');
+        chip.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200';
+        chip.innerHTML = `
+          <span class="w-3.5 h-3.5 rounded-full bg-emerald-600 text-[8px] font-bold text-white flex items-center justify-center">${a.name.charAt(0)}</span>
+          <span>${a.name}</span>
+          ${a.isLead ? '<span class="text-[8px] px-1 rounded bg-indigo-100 text-indigo-700 font-bold">LEAD</span>' : ''}
+        `;
+        assigneesContainer.appendChild(chip);
+      });
+
+      // Checklist items
+      const checklistContainer = document.getElementById('modalChecklistContainer');
+      checklistContainer.innerHTML = '';
+      task.checklist.forEach(item => {
+        const label = document.createElement('label');
+        label.className = 'flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700 cursor-pointer text-xs';
+        label.innerHTML = `
+          <input type="checkbox" ${item.is_done ? 'checked' : ''} class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+          <span class="${item.is_done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200 font-medium'}">${item.label}</span>
+        `;
+        label.querySelector('input').onchange = (e) => {
+          item.is_done = e.target.checked;
+          openDetailModal(taskId); // re-render checklist
+          renderTasks();
+        };
+        checklistContainer.appendChild(label);
+      });
+
+      // Show modal
+      document.getElementById('detailModalBackdrop').classList.remove('hidden');
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detailModalBackdrop').classList.add('hidden');
+      activeModalTaskId = null;
+    }
+
+    function actionToggleTimerFromModal() {
+      if (!activeModalTaskId) return;
+      alert(`Stopwatch stopwatch & log kerja diperbarui untuk tiket.`);
+      closeDetailModal();
+    }
+
+    function actionCompleteTaskFromModal() {
+      if (!activeModalTaskId) return;
+      const task = tasksData.find(t => t.id === activeModalTaskId);
+      if (task) {
+        task.stage = 'DONE';
+        task.timerRunning = false;
+        alert(`Tiket ${task.ticket_code} berhasil ditandai SELESAI dan disinkronkan ke server PingDulu!`);
+        closeDetailModal();
+        renderTasks();
+        renderDayStrip();
+      }
+    }
+
+    function openQuickAddModal() {
+      const title = prompt('Masukkan Judul Tiket Cepat:', 'Pengecekan Kabel Fiber Optic Lt. 3');
+      if (title) {
+        const newId = tasksData.length + 1;
+        tasksData.push({
+          id: newId,
+          ticket_code: `NET-${newId}`,
+          title: title,
+          category: 'NET',
+          categoryColor: 'bg-indigo-50 dark:bg-indigo-950/50 text-[#36459B] dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+          epochDay: selectedDayEpoch,
+          timeSlot: '16:00 - 17:00',
+          priority: 'P2_HIGH',
+          stage: 'BACKLOG',
+          assignees: [
+            { name: 'Fajar', role: 'admin', isLead: true }
+          ],
+          checklist: [
+            { id: 991, label: 'Inspeksi fisik konektor', is_done: false },
+            { id: 992, label: 'Uji redaman OPM', is_done: false }
+          ],
+          location: 'Gedung Utama Lt. 3',
+          timerRunning: false,
+          trackedSec: 0
+        });
+        renderTasks();
+        renderDayStrip();
+        alert('Tiket berhasil ditambahkan ke jadwal!');
+      }
+    }
+
+    // =========================================================================
+    // 7. SYNC TRIGGER SIMULATION (PingDulu Backend)
+    // =========================================================================
+    document.getElementById('btnSyncTrigger').onclick = () => {
+      const dot = document.getElementById('syncDot');
+      const text = document.getElementById('syncText');
+      dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 animate-spin';
+      text.innerText = 'Menyinkronkan...';
+
+      setTimeout(() => {
+        dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse';
+        text.innerText = 'Tersinkron';
+        alert('Data berhasil disinkronkan langsung dengan server PingDulu (https://ping.fjrx.my.id) via SSE.');
+      }, 700);
+    };
+
+    // =========================================================================
+    // 8. THEME TOGGLE (Light / Dark)
+    // =========================================================================
+    const btnTheme = document.getElementById('btnThemeToggle');
+    btnTheme.onclick = () => {
+      document.documentElement.classList.toggle('dark');
+    };
+
+    function toggleMenu() {
+      alert('Menu PingDulu Field Ops:\n- Profil Teknisi: Fajar (admin)\n- Server: ping.fjrx.my.id\n- Mode Offline: Aktif (SQLite Room DB)\n- Versi: 1.0.0-behance');
+    }
+
+    // INITIALIZATION
+    renderDayStrip();
+    renderTasks();
+    startHeroTimer();
+  </script>
+</body>
+</html>

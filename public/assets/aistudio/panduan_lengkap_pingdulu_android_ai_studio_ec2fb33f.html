@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panduan Hands-On PingDulu Field Ops Android di Google AI Studio</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    }
+    code, pre {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; color: black !important; padding: 0 !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen py-8 px-4 sm:px-8 flex justify-center">
+
+  <div class="max-w-4xl w-full bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+    
+    <!-- TOP ACTION HEADER -->
+    <header class="bg-gradient-to-r from-slate-900 via-[#1e2875] to-[#36459B] text-white p-6 sm:p-8">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-200 text-xs font-bold tracking-wide uppercase border border-white/20 mb-2">
+            <span>PINGDULU FIELD OPS</span>
+            <span>•</span>
+            <span>GOOGLE AI STUDIO PLAYBOOK</span>
+          </div>
+          <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">Master Blueprint: Hands-On Android App</h1>
+          <p class="text-indigo-200 text-sm mt-1">Panduan tunggal siap unduh untuk pengerjaan aplikasi teknisi lapangan di Google AI Studio</p>
+        </div>
+
+        <!-- Download Buttons -->
+        <div class="flex flex-wrap items-center gap-2 no-print shrink-0">
+          <button onclick="downloadMarkdownFile()" class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>Unduh File (.md)</span>
+          </button>
+          <button onclick="window.print()" class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 text-white font-bold text-xs border border-white/30 backdrop-blur transition-all cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+            <span>Cetak / PDF</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- CONTENT BODY -->
+    <main class="p-6 sm:p-10 space-y-8">
+
+      <!-- QUICK INFO BANNER -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
+        <div>
+          <span class="text-slate-400 font-semibold block uppercase tracking-wider text-[10px]">Model Rekomendasi</span>
+          <strong class="text-slate-900 text-sm">Gemini 1.5 Pro / 2.0 Pro</strong>
+        </div>
+        <div>
+          <span class="text-slate-400 font-semibold block uppercase tracking-wider text-[10px]">Parameter Suhu</span>
+          <strong class="text-slate-900 text-sm">Temperature: 0.2 (Presisi)</strong>
+        </div>
+        <div>
+          <span class="text-slate-400 font-semibold block uppercase tracking-wider text-[10px]">Arsitektur Android</span>
+          <strong class="text-slate-900 text-sm">Compose + Room Offline-First</strong>
+        </div>
+      </div>
+
+      <!-- SECTION 1: SYSTEM INSTRUCTIONS -->
+      <section class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <span class="w-6 h-6 rounded-lg bg-[#36459B] text-white flex items-center justify-center text-xs font-black">1</span>
+            <span>System Instructions (Salin ke Panel AI Studio)</span>
+          </h2>
+          <button onclick="copyToClipboard('systemInstructionCode')" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-[#36459B] border border-indigo-200 transition-colors flex items-center gap-1 no-print">
+            <span>📋 Salin Instruksi</span>
+          </button>
+        </div>
+        <p class="text-xs text-slate-600">Buka pengaturan <em>System Instructions</em> di AI Studio lalu tempel prompt berikut secara utuh:</p>
+        <pre class="p-4 rounded-2xl bg-slate-900 text-slate-100 text-xs overflow-x-auto leading-relaxed border border-slate-800"><code id="systemInstructionCode">Anda adalah Principal Android Architect & Senior Jetpack Compose Engineer yang menguasai ekosistem Android modern (Kotlin 2.0+, Jetpack Compose, Material 3, Room SQLite Offline-First, Retrofit 2, dan Kotlin Coroutines Flow).
+
+TUGAS ANDA:
+Membangun kode produksi lengkap untuk aplikasi Android "PingDulu Field Ops". Aplikasi ini dibuat khusus untuk teknisi IT lapangan dengan fitur utama:
+1. Layar Beranda: Jadwal 7 Hari Bergulir (7-Day Rolling Horizon Strip).
+2. Hero Active Job Card: Menyorot tiket yang sedang aktif berjalan dengan Live Stopwatch berdetik, target SLA, lokasi, checklist progress, dan multi-assignee avatars.
+3. Status Kanban Filter Pills: Filter chip horizontal (Antrean/Backlog, Proses/In Progress, Selesai/Done) yang menggantikan keterbatasan kolom Kanban tradisional di layar HP.
+4. 2-Column Responsive Card Grid: Menampilkan kartu-kartu tiket secara padat namun rapi (2 kolom) dengan waktu janji temu dan avatar teknisi bertumpuk.
+5. Bottom Sheet Lembar Kerja: Checklist interaktif per tiket yang bisa dicentang langsung secara offline.
+6. Offline-First Synchronization: Data selalu disimpan dan dibaca dari Room DB lokal, lalu disinkronkan dua arah ke server PingDulu (https://ping.fjrx.my.id).
+
+SPESIFIKASI DESAIN (BEHANCE ADAPTATION - JONATHAN HERLIM):
+- Latar Belakang (Canvas): #F8FAFC (Light Mode) / #0F172A (Dark Mode)
+- Permukaan Kartu: #FFFFFF (Light) / #1E293B (Dark)
+- Hero Active Job: Deep Cobalt Navy (#36459B), radius 22dp, teks putih, border halus white/20.
+- Filter Pills:
+  * Antrean (Backlog): Soft Periwinkle/Lilac (#9B9AE1)
+  * Proses (In Progress): Sky Blue (#6DA7E8)
+  * Selesai (Completed): Mint Green (#52C58F)
+- Prioritas: P1 Crimson (#EF4444), P2 Amber (#F59E0B), P3 Normal (#3B82F6).
+
+STANDAR PENULISAN KODE:
+- Berikan kode lengkap per file secara modular tanpa potongan `// TODO: implement here`.
+- Setiap file harus diawali dengan header nama file: `[NamaFile.kt]`.
+- Gunakan idiom Kotlin terbaru (Immutable data class, StateFlow, lambda event handling).</code></pre>
+      </section>
+
+      <!-- SECTION 2: PROMPTS PIPELINE -->
+      <section class="space-y-4">
+        <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-[#36459B] text-white flex items-center justify-center text-xs font-black">2</span>
+          <span>Sekuens 6 Prompt Bertahap (Jalankan Berurutan)</span>
+        </h2>
+        <p class="text-xs text-slate-600">Eksekusi prompt berikut satu per satu dalam sesi chat yang sama di Google AI Studio:</p>
+
+        <!-- Prompt 1 -->
+        <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">Langkah 1: Setup Proyek, Gradle & Room Database (Offline Engine)</span>
+            <button onclick="copyToClipboard('p1Text')" class="text-[11px] font-semibold text-slate-600 hover:text-indigo-600 no-print">📋 Salin</button>
+          </div>
+          <pre class="p-3 rounded-xl bg-slate-50 text-slate-800 text-xs overflow-x-auto border border-slate-200"><code id="p1Text">Halo Gemini. Mari kita bangun aplikasi Android "PingDulu Field Ops".
+Langkah 1: Berikan seluruh konfigurasi dasar proyek dan database lokal Room:
+1. `libs.versions.toml` dan `build.gradle.kts` (app) dengan dependensi Compose, Material 3, Room, Retrofit, Kotlinx Serialization / Gson, dan Navigation.
+2. Domain Models: `Task.kt`, `Assignee.kt`, `ChecklistItem.kt`, `Priority.kt`, `Stage.kt`.
+3. Room Entities: `TaskEntity.kt` (memiliki primary key ID, ticket_code, title, category, scheduled_date_epoch_day, priority, stage, tracked_seconds, location, is_synced), `TaskConverters.kt` (converter List&lt;Assignee&gt; dan List&lt;ChecklistItem&gt; ke JSON string).
+4. Room DAO: `TaskDao.kt` dengan fungsi:
+   - getTasksByEpochDay(epochDay: Long): Flow&lt;List&lt;TaskEntity&gt;&gt;
+   - getActiveHeroTask(): Flow&lt;TaskEntity?&gt; (stage = IN_PROGRESS)
+   - upsertTasks(tasks: List&lt;TaskEntity&gt;)
+   - updateChecklist(taskId: Long, checklistJson: String)
+   - updateTaskTimer(taskId: Long, seconds: Long, isRunning: Boolean)
+5. `AppDatabase.kt` singleton builder.
+Pastikan kode lengkap tanpa potongan.</code></pre>
+        </div>
+
+        <!-- Prompt 2 -->
+        <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">Langkah 2: Design System & Komponen Visual Behance</span>
+            <button onclick="copyToClipboard('p2Text')" class="text-[11px] font-semibold text-slate-600 hover:text-indigo-600 no-print">📋 Salin</button>
+          </div>
+          <pre class="p-3 rounded-xl bg-slate-50 text-slate-800 text-xs overflow-x-auto border border-slate-200"><code id="p2Text">Langkah 2: Buat Design System Jetpack Compose yang mengadopsi estetika Behance karya Jonathan Herlim:
+1. `Color.kt`:
+   - Deep Cobalt Navy: PingDuluNavy = Color(0xFF36459B)
+   - Hero Gradient: Brush linear dari 0xFF1E2875 ke 0xFF36459B
+   - Status Pills: PillBacklogLilac = Color(0xFF9B9AE1), PillProgressSky = Color(0xFF6DA7E8), PillDoneMint = Color(0xFF52C58F)
+   - Priority Colors: P1Crimson = Color(0xFFEF4444), P2Amber = Color(0xFFF59E0B), P3Blue = Color(0xFF3B82F6)
+   - Canvas: CanvasLight = Color(0xFFF8FAFC), CanvasDark = Color(0xFF0F172A)
+2. `Theme.kt` & `Type.kt` (Tipografi modern dengan kontras tajam).
+3. Komponen Atomik:
+   - `StackedAvatarGroup.kt`: Menampilkan 1 hingga 3 avatar lingkaran bertumpuk dengan inisial teknisi (border putih/dark ring), serta indikator jika pengguna adalah PIC Lead.
+   - `PriorityBadge.kt`: Badge P1, P2, P3 dengan warna latar lembut dan teks tebal.
+   - `CategoryPill.kt`: Badge kategori tiket (NET, SRV, HRD, SEC, ONB).</code></pre>
+        </div>
+
+        <!-- Prompt 3 -->
+        <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">Langkah 3: Data Layer, Jaringan Retrofit & Repository SSOT</span>
+            <button onclick="copyToClipboard('p3Text')" class="text-[11px] font-semibold text-slate-600 hover:text-indigo-600 no-print">📋 Salin</button>
+          </div>
+          <pre class="p-3 rounded-xl bg-slate-50 text-slate-800 text-xs overflow-x-auto border border-slate-200"><code id="p3Text">Langkah 3: Buat Data Layer dan Repository dengan pola Single Source of Truth (SSOT):
+1. `PingDuluApiService.kt`: Interface Retrofit:
+   - @POST("api/auth/login") suspend fun login(...)
+   - @GET("api/tasks") suspend fun getTasks(): Response&lt;TaskResponseDto&gt;
+   - @PATCH("api/tasks/{id}/stage") suspend fun updateStage(@Path("id") id: Long, @Body body: StageUpdateDto)
+   - @POST("api/tasks/{id}/timer") suspend fun updateTimer(@Path("id") id: Long, @Body body: TimerUpdateDto)
+   - @PUT("api/tasks/{id}/checklist") suspend fun syncChecklist(...)
+2. `AuthInterceptor.kt`: OkHttp interceptor untuk menyematkan header "Authorization: Bearer &lt;token&gt;" secara otomatis.
+3. `TaskRepository.kt` (interface domain) & `TaskRepositoryImpl.kt`:
+   - Mengambil Flow dari Room DB lokal sehingga UI reaktif instan.
+   - Fungsi `refreshTasksFromServer()`: Mengambil data tiket dari API, lalu melakukan upsert ke Room DB. Jika jaringan offline, abaikan error dan gunakan data lokal yang ada.
+   - Fungsi `toggleChecklistItem(taskId: Long, checklistId: Long)`: Update data lokal Room seketika, lalu jadwalkan sync ke server.</code></pre>
+        </div>
+
+        <!-- Prompt 4 -->
+        <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">Langkah 4: ViewModel, UI State & Live Timer Coroutine</span>
+            <button onclick="copyToClipboard('p4Text')" class="text-[11px] font-semibold text-slate-600 hover:text-indigo-600 no-print">📋 Salin</button>
+          </div>
+          <pre class="p-3 rounded-xl bg-slate-50 text-slate-800 text-xs overflow-x-auto border border-slate-200"><code id="p4Text">Langkah 4: Buat `ScheduleUiState.kt` dan `ScheduleViewModel.kt`:
+1. `ScheduleUiState`:
+   - selectedEpochDay: Long (default hari ini)
+   - scheduleDays: List&lt;DayHorizonModel&gt; (7 hari bergulir: nama hari, tanggal angka, epochDay, total tiket, indikator warna titik)
+   - activeHeroTask: Task? (tiket yang sedang dikerjakan saat ini)
+   - filteredTasks: List&lt;Task&gt; (tiket pada hari terpilih yang telah disaring)
+   - selectedStatusFilter: StatusFilter (ALL, BACKLOG, IN_PROGRESS, DONE)
+   - layoutMode: LayoutMode (GRID_2_COLUMN atau LIST_1_COLUMN)
+   - isSyncing: Boolean
+2. `ScheduleViewModel`:
+   - Menginisialisasi 7 hari bergulir secara dinamis berbasis tanggal sistem saat ini.
+   - Menjalankan Coroutine ticker stopwatch (`tickerFlow` atau `delay(1000L)`) yang menambah 1 detik pada `activeHeroTask.tracked_seconds` saat timer aktif berjalan.
+   - Fungsi `onDaySelected(epochDay: Long)`, `onStatusFilterSelected(status)`, `onToggleLayoutMode()`.
+   - Fungsi `toggleTaskTimer(taskId: Long)` dan `markTaskCompleted(taskId: Long)`.</code></pre>
+        </div>
+
+        <!-- Prompt 5 -->
+        <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">Langkah 5: Layar Utama Jetpack Compose (Hero Card, 7-Day Strip & 2-Col Grid)</span>
+            <button onclick="copyToClipboard('p5Text')" class="text-[11px] font-semibold text-slate-600 hover:text-indigo-600 no-print">📋 Salin</button>
+          </div>
+          <pre class="p-3 rounded-xl bg-slate-50 text-slate-800 text-xs overflow-x-auto border border-slate-200"><code id="p5Text">Langkah 5: Buat seluruh antarmuka Compose pada `ScheduleScreen.kt`:
+1. `TopAppBarSection`: Greeting "Selamat Pagi, Fajar 👋", badge live sync "🟢 Tersinkron (Live SSE)", dan avatar pengguna.
+2. `HeroActiveJobCard`:
+   - Background gradient Deep Cobalt Navy (#36459B), radius sudut 22dp.
+   - Kode tiket, judul pekerjaan, display stopwatch format HH:MM:SS berwarna hijau mint tajam font mono dengan tombol Jeda/Lanjut.
+   - Target SLA dan penunjuk lokasi.
+   - Inset sub-panel: Checklist progress bar (misal: "Checklist 3/5 (60%)"), tombol Google Maps rute lokasi, dan tombol buka lembar kerja.
+3. `Horizon7DayStrip`:
+   - LazyRow horizontal berisi kartu 7 hari dengan indikator dot warna (merah P1, amber P2, hijau tuntas) dan counter jumlah tiket.
+4. `StatusFilterPillRow`:
+   - Filter chips horizontal bergaya Behance: Semua, Antrean (#9B9AE1), Proses (#6DA7E8), Selesai (#52C58F), plus toggle switch Grid 2-Kolom / List.
+5. `TaskGridSection`:
+   - Jika layout = GRID: gunakan `LazyVerticalGrid(columns = GridCells.Fixed(2))` dengan kartu tinggi ~155dp, memuat kode tiket, badge prioritas, judul 2-baris, jam jadwal, dan avatar bertumpuk di kanan bawah.
+   - Jika layout = LIST: tampilkan kartu baris horizontal yang padat.
+6. `TaskDetailBottomSheet`:
+   - Modal bottom sheet yang terbuka saat kartu tiket diketuk, berisi informasi lengkap tiket, tim teknisi bertugas (dengan penanda LEAD), daftar checklist yang dapat dicentang langsung, dan tombol "Tandai Selesai".</code></pre>
+        </div>
+
+        <!-- Prompt 6 -->
+        <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">Langkah 6: Bottom Navigation Bar, MainActivity & Integrasi Akhir</span>
+            <button onclick="copyToClipboard('p6Text')" class="text-[11px] font-semibold text-slate-600 hover:text-indigo-600 no-print">📋 Salin</button>
+          </div>
+          <pre class="p-3 rounded-xl bg-slate-50 text-slate-800 text-xs overflow-x-auto border border-slate-200"><code id="p6Text">Langkah 6: Satukan seluruh aplikasi di `MainActivity.kt`:
+1. Implementasi `Scaffold` dengan handling Android edge-to-edge (`WindowInsetsCompat`).
+2. `BottomNavigationBar`:
+   - 4 tab navigasi: Agenda (Aktif), Papan Kanban Full, SPK/Riwayat, Pengaturan/Sync.
+   - Tombol tengah melayang (Elevated Floating Action Button) untuk fitur "Tambah Tiket Cepat (+)".
+3. Wiring instance `AppDatabase`, `TaskRepository`, dan injection ke `ScheduleViewModel`.
+Berikan kode akhir yang siap di-compile tanpa error.</code></pre>
+        </div>
+      </section>
+
+      <!-- SECTION 3: ANDROID STUDIO FOLDER TREE -->
+      <section class="space-y-3">
+        <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-[#36459B] text-white flex items-center justify-center text-xs font-black">3</span>
+          <span>Struktur Direktori Target di Android Studio</span>
+        </h2>
+        <p class="text-xs text-slate-600">Salin file yang dihasilkan oleh AI ke dalam direktori paket <code>id.my.fjrx.pingdulu.fieldops</code>:</p>
+        <pre class="p-4 rounded-2xl bg-slate-900 text-slate-100 text-xs overflow-x-auto border border-slate-800"><code>app/src/main/java/id/my/fjrx/pingdulu/fieldops/
+├── data/
+│   ├── local/          # AppDatabase, TaskDao, TaskEntity, TaskConverters
+│   ├── remote/         # PingDuluApiService, AuthInterceptor, DTOs
+│   └── repository/     # TaskRepositoryImpl (Single Source of Truth)
+├── domain/
+│   ├── model/          # Task, Assignee, ChecklistItem, Priority, Stage
+│   └── repository/     # TaskRepository interface
+└── presentation/
+    ├── components/     # HeroActiveJobCard, Horizon7DayStrip, GridCard, Avatars
+    ├── schedule/       # ScheduleScreen, ScheduleViewModel, ScheduleUiState
+    ├── theme/          # Color, Theme, Type (Behance Palette)
+    └── MainActivity.kt # Entry point, Scaffold, BottomNavigation</code></pre>
+      </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="bg-slate-100 border-t border-slate-200 p-6 text-center text-xs text-slate-500">
+      PingDulu Field Ops Mobile • All-in-One AI Studio Playbook • Backend: <code>https://ping.fjrx.my.id</code>
+    </footer>
+
+  </div>
+
+  <script>
+    // Copy to clipboard helper
+    function copyToClipboard(elementId) {
+      const code = document.getElementById(elementId).innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        alert('Teks berhasil disalin ke clipboard!');
+      }).catch(err => {
+        alert('Gagal menyalin: ' + err);
+      });
+    }
+
+    // Markdown file download helper
+    function downloadMarkdownFile() {
+      fetch('file:///home/fajar/.gemini/antigravity/brain/9d7cdc4f-c6fa-43dc-aadc-a625d0c5eddb/panduan_lengkap_pingdulu_android_ai_studio.md')
+        .then(res => res.text())
+        .then(text => {
+          triggerBlobDownload(text, 'panduan_lengkap_pingdulu_android_ai_studio.md', 'text/markdown');
+        })
+        .catch(() => {
+          // Fallback if local file fetch is restricted in browser sandbox
+          const fallbackText = document.getElementById('systemInstructionCode').innerText;
+          triggerBlobDownload(fallbackText, 'panduan_pingdulu_android.md', 'text/markdown');
+        });
+    }
+
+    function triggerBlobDownload(content, filename, mimeType) {
+      const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
