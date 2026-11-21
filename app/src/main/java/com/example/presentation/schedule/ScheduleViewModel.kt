@@ -11,18 +11,27 @@ import com.example.data.remote.SseConnectionState
 import com.example.data.remote.SseEvent
 import com.example.data.remote.SseEventClient
 import com.example.domain.model.DateEpochUtil
+import com.example.domain.model.FieldTechnician
+import com.example.domain.model.IndonesianHolidayCatalog
+import com.example.domain.model.NationalHoliday
+import com.example.domain.model.OfficialLabel
 import com.example.domain.model.Priority
+import com.example.domain.model.QuickTaskDraft
+import com.example.domain.model.SnoozeOption
 import com.example.domain.model.Stage
 import com.example.domain.model.Task
+import com.example.domain.model.TaskDetailWorkspaceState
 import com.example.domain.model.TicketCategory
 import com.example.domain.repository.SyncResult
 import com.example.domain.repository.TaskRepository
+import com.example.util.ConnectivityMonitor
 import com.example.util.TaskNotificationDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -38,11 +47,14 @@ class ScheduleViewModel(
     private val appPreferences: AppPreferences? = null,
     private val sseEventClient: SseEventClient? = null,
     private val notificationDispatcher: TaskNotificationDispatcher? = null,
+    private val connectivityMonitor: ConnectivityMonitor? = null,
     private val baseEpochDayProvider: () -> Long = { DateEpochUtil.todayEpochDay() },
-    private val hourOfDayProvider: () -> Int = { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) },
+    private val hourOfDayProvider: () -> Int = { DateEpochUtil.currentHourOfDay() },
     private val enableBackgroundTicker: Boolean = true,
     private val enableSseStream: Boolean = true,
-    private val initialUserIdForTesting: Long = 0L
+    private val enableAutoSyncRetry: Boolean = false,
+    private val initialUserIdForTesting: Long = 0L,
+    private val clockMillisProvider: () -> Long = { System.currentTimeMillis() }
 ) : ViewModel() {
 
     private val initialTodayEpochDay: Long = baseEpochDayProvider()
@@ -58,6 +70,8 @@ class ScheduleViewModel(
     private val syncMessageFlow = MutableStateFlow<String?>(null)
     private val loginErrorMessageFlow = MutableStateFlow<String?>(null)
     private val sseStateFlow = MutableStateFlow(SseConnectionState.OFFLINE)
+    private val isNetworkOnlineFlow = MutableStateFlow(true)
+    private val isAppInForegroundFlow = MutableStateFlow(true)
     private val localDarkOverrideFlow = MutableStateFlow<Boolean?>(null)
     private val localShiftStatusOverrideFlow = MutableStateFlow<ShiftStatus?>(null)
     private val onlyMyTicketsFlow = MutableStateFlow(false)
@@ -78,21 +92,56 @@ class ScheduleViewModel(
     private var heroSeedJob: Job? = null
     private var tickerJob: Job? = null
     private var sseJob: Job? = null
+    private var sseRefreshJob: Job? = null
+    private var connectivityJob: Job? = null
+    private var autoPushJob: Job? = null
+    private var fallbackPollingJob: Job? = null
     private var delegationJob: Job? = null
     private var deepLinkJob: Job? = null
+    private var detailWorkspaceJob: Job? = null
+    private var lastResumeSyncAtMillis: Long = 0L
+    @Volatile
+    private var lastLocalMutationAtMillis: Long = 0L
 
-    // Smooth 1-second stopwatch state separated from Room writes to avoid 1Hz full-table invalidation
-    private data class LiveTimerSnapshot(
-        val taskId: Long = -1L,
-        val seconds: Long = 0L
+    private val detailWorkspaceFlow = MutableStateFlow(TaskDetailWorkspaceState())
+    val detailWorkspaceState: StateFlow<TaskDetailWorkspaceState> = detailWorkspaceFlow.asStateFlow()
+
+    private val initialYearMonth = DateEpochUtil.yearMonthFromEpochDay(initialTodayEpochDay)
+    private val calendarYearMonthFlow = MutableStateFlow(initialYearMonth)
+    private val calendarSelectedEpochDayFlow = MutableStateFlow(initialTodayEpochDay)
+    private val isLoadingCalendarFlow = MutableStateFlow(false)
+    private val holidaysByEpochDayFlow = MutableStateFlow<Map<Long, NationalHoliday>>(
+        IndonesianHolidayCatalog.holidaysForYear(initialYearMonth.first).associateBy { it.epochDay }
     )
+    private var calendarFetchJob: Job? = null
+
+    private data class CalendarControlBundle(
+        val year: Int,
+        val month: Int,
+        val selectedEpochDay: Long,
+        val isLoading: Boolean,
+        val holidaysByEpochDay: Map<Long, NationalHoliday>
+    )
+
+    private val calendarControlFlow = combine(
+        calendarYearMonthFlow,
+        calendarSelectedEpochDayFlow,
+        isLoadingCalendarFlow,
+        holidaysByEpochDayFlow
+    ) { (year, month), selectedDay, loading, holidays ->
+        CalendarControlBundle(
+            year = year,
+            month = month,
+            selectedEpochDay = selectedDay,
+            isLoading = loading,
+            holidaysByEpochDay = holidays
+        )
+    }
 
     private data class LoadedSession(
         val isLoaded: Boolean,
         val prefs: UserSessionPrefs
     )
-
-    private val liveTimerFlow = MutableStateFlow(LiveTimerSnapshot())
 
     private val sessionStateFlow: StateFlow<LoadedSession> =
         (appPreferences?.sessionFlow?.map { LoadedSession(isLoaded = true, prefs = it) }
@@ -145,12 +194,16 @@ class ScheduleViewModel(
         val isSyncing: Boolean,
         val isLoggingIn: Boolean,
         val syncMessage: String?,
+        val lastSyncError: String?,
+        val isNetworkOnline: Boolean,
         val loginErrorMessage: String?,
         val sseState: SseConnectionState,
         val unsyncedCount: Int,
         val session: UserSessionPrefs,
         val isSessionLoaded: Boolean,
-        val localDarkOverride: Boolean?
+        val localDarkOverride: Boolean?,
+        val availableTechnicians: List<FieldTechnician>,
+        val officialLabels: List<OfficialLabel>
     )
 
     private val coreUiControlFlow = combine(
@@ -233,32 +286,54 @@ class ScheduleViewModel(
         )
     }
 
+    private val syncDiagnosticsFlow = combine(
+        repository.observeUnsyncedCount(),
+        repository.observeLastSyncError(),
+        isNetworkOnlineFlow
+    ) { unsyncedCount, lastSyncError, isOnline ->
+        Triple(unsyncedCount, lastSyncError, isOnline)
+    }
+
+    private val catalogsFlow = combine(
+        repository.observeTechnicians(),
+        repository.observeOfficialLabels()
+    ) { technicians, labels ->
+        technicians to labels
+    }
+
     private val syncAndSessionFlow = combine(
         syncFlagsFlow,
-        repository.observeUnsyncedCount(),
+        syncDiagnosticsFlow,
         sessionStateFlow,
-        localDarkOverrideFlow
-    ) { flags, unsyncedCount, loadedSession, localDark ->
+        localDarkOverrideFlow,
+        catalogsFlow
+    ) { flags, diagnostics, loadedSession, localDark, catalogs ->
+        val (unsyncedCount, lastSyncError, isOnline) = diagnostics
+        val (technicians, labels) = catalogs
         SyncAndSessionBundle(
             isSyncing = flags.isSyncing,
             isLoggingIn = flags.isLoggingIn,
             syncMessage = flags.syncMessage,
+            lastSyncError = lastSyncError,
+            isNetworkOnline = isOnline,
             loginErrorMessage = flags.loginErrorMessage,
             sseState = flags.sseState,
             unsyncedCount = unsyncedCount,
             session = loadedSession.prefs,
             isSessionLoaded = loadedSession.isLoaded,
-            localDarkOverride = localDark
+            localDarkOverride = localDark,
+            availableTechnicians = technicians,
+            officialLabels = labels
         )
     }
 
     val uiState: StateFlow<ScheduleUiState> = combine(
         repository.observeAllTasks(),
         repository.observeActiveHeroTask(),
-        liveTimerFlow,
+        calendarControlFlow,
         uiControlFlow,
         syncAndSessionFlow
-    ) { allTasks, activeHero, liveTimer, controls, syncBundle ->
+    ) { allTasks, activeHero, calendarBundle, controls, syncBundle ->
         val currentUserId = syncBundle.session.userId
         val techName = syncBundle.session.technicianName.ifBlank { "Fajar" }
         val drawerFilters = controls.drawerFilters
@@ -286,7 +361,8 @@ class ScheduleViewModel(
         val scheduleDays = buildScheduleDays(
             allTasks = scopedTasks,
             baseEpochDay = currentBaseEpochDay,
-            horizonEpochDays = horizonEpochDays
+            horizonEpochDays = horizonEpochDays,
+            holidaysByEpochDay = calendarBundle.holidaysByEpochDay
         )
         val dayTasks = scopedTasks.filter { it.scheduledDateEpochDay == controls.selectedEpochDay }
             .sortedWith(
@@ -314,20 +390,8 @@ class ScheduleViewModel(
             .filter { !it.isSynced }
             .sortedByDescending { it.updatedAtMillis }
 
-        val resolvedLiveHeroSeconds = when {
-            activeHero == null -> 0L
-            liveTimer.taskId == activeHero.id && liveTimer.seconds >= activeHero.trackedSeconds -> liveTimer.seconds
-            else -> activeHero.trackedSeconds
-        }
-
         val sheetTask = controls.sheetTaskId?.let { id ->
             allTasks.firstOrNull { it.id == id }
-        }?.let { task ->
-            if (activeHero != null && task.id == activeHero.id) {
-                task.copy(trackedSeconds = resolvedLiveHeroSeconds)
-            } else {
-                task
-            }
         }
 
         val syncBadge = when {
@@ -342,7 +406,6 @@ class ScheduleViewModel(
         val isDark = syncBundle.localDarkOverride ?: (syncBundle.session.themePreference == ThemePreference.DARK)
         val notifications = buildOperationalNotifications(
             allTasks = allTasks,
-            activeHero = activeHero,
             unsyncedTasks = unsyncedTasks,
             syncBadge = syncBadge,
             todayEpochDay = currentBaseEpochDay,
@@ -365,7 +428,7 @@ class ScheduleViewModel(
             selectedFullDateLabel = DateEpochUtil.formatFullDate(controls.selectedEpochDay),
             scheduleDays = scheduleDays,
             activeHeroTask = activeHero,
-            liveHeroSeconds = resolvedLiveHeroSeconds,
+            liveHeroSeconds = activeHero?.trackedSeconds ?: 0L,
             allTasks = allTasks,
             filteredTasks = filtered,
             unsyncedTasks = unsyncedTasks,
@@ -380,6 +443,8 @@ class ScheduleViewModel(
             unsyncedCount = syncBundle.unsyncedCount,
             syncStatusBadge = syncBadge,
             syncMessage = syncBundle.syncMessage,
+            lastSyncError = syncBundle.lastSyncError,
+            isNetworkOnline = syncBundle.isNetworkOnline,
             loginErrorMessage = syncBundle.loginErrorMessage,
             sseState = syncBundle.sseState,
             serverBaseUrl = syncBundle.session.serverBaseUrl,
@@ -389,7 +454,14 @@ class ScheduleViewModel(
             lastSyncedAtMillis = syncBundle.session.lastSyncedAtMillis,
             notifications = notifications,
             unreadNotificationCount = unreadNotificationCount,
-            isLoggingIn = syncBundle.isLoggingIn
+            isLoggingIn = syncBundle.isLoggingIn,
+            availableTechnicians = syncBundle.availableTechnicians,
+            officialLabels = syncBundle.officialLabels,
+            holidaysByEpochDay = calendarBundle.holidaysByEpochDay,
+            calendarYear = calendarBundle.year,
+            calendarMonth = calendarBundle.month,
+            calendarSelectedEpochDay = calendarBundle.selectedEpochDay,
+            isLoadingCalendar = calendarBundle.isLoading
         )
     }.stateIn(
         scope = viewModelScope,
@@ -402,7 +474,12 @@ class ScheduleViewModel(
             ),
             selectedFullDateLabel = DateEpochUtil.formatFullDate(initialTodayEpochDay),
             greetingTitle = buildGreeting("Fajar", hourOfDayProvider()),
-            isSessionLoaded = appPreferences == null
+            isSessionLoaded = appPreferences == null,
+            holidaysByEpochDay = IndonesianHolidayCatalog.holidaysForYear(initialYearMonth.first)
+                .associateBy { it.epochDay },
+            calendarYear = initialYearMonth.first,
+            calendarMonth = initialYearMonth.second,
+            calendarSelectedEpochDay = initialTodayEpochDay
         )
     )
 
@@ -413,112 +490,243 @@ class ScheduleViewModel(
             repository.initializeOfflineCache()
             val hasStoredToken = appPreferences != null && !appPreferences.getToken().isNullOrBlank()
             if (hasStoredToken) {
-                triggerSyncInternal(isInitialBaselineSync = true)
+                // Record startup sync timestamp so immediate onResume() right after cold launch
+                // does not fire a duplicate full GET /api/tasks sync.
+                lastResumeSyncAtMillis = clockMillisProvider()
+                launch { repository.refreshCatalogsFromServer() }
+                launch { loadHolidaysForYear(initialYearMonth.first) }
+                triggerSyncInternal(isInitialBaselineSync = true, silentOnSuccess = true)
             } else {
                 suppressDelegationDuringInitialSync = false
             }
         }
 
-        observeActiveHeroForTimerSeed()
         observeAssignedTaskDelegations()
         observePendingNotificationDeepLink()
 
-        if (enableBackgroundTicker) {
-            startLiveStopwatchTicker()
-        }
-
         if (enableSseStream && sseEventClient != null) {
             observeSseEvents()
+        }
+
+        if (connectivityMonitor != null) {
+            observeNetworkConnectivity()
+        }
+
+        if (enableAutoSyncRetry) {
+            observePendingAutoPush()
+            if (enableSseStream) {
+                observeLiveFallbackPolling()
+            }
         }
     }
 
     private fun SyncAndSessionBundle.lastSyncedMillisOrZero(): Long = session.lastSyncedAtMillis
 
-    private fun observeActiveHeroForTimerSeed() {
-        heroSeedJob = viewModelScope.launch {
-            repository.observeActiveHeroTask()
-                .map { task -> task?.let { Triple(it.id, it.trackedSeconds, it.isTimerRunning) } }
-                .distinctUntilChanged()
-                .collect { triple ->
-                    if (triple == null) {
-                        liveTimerFlow.value = LiveTimerSnapshot()
-                    } else {
-                        val (id, dbSeconds, _) = triple
-                        val current = liveTimerFlow.value
-                        if (current.taskId != id || dbSeconds > current.seconds) {
-                            liveTimerFlow.value = LiveTimerSnapshot(taskId = id, seconds = dbSeconds)
-                        }
-                    }
-                }
+    fun loadHolidaysForYear(year: Int) {
+        viewModelScope.launch {
+            val holidays = repository.fetchHolidaysForYear(year)
+            if (holidays.isNotEmpty()) {
+                val merged = LinkedHashMap(holidaysByEpochDayFlow.value)
+                holidays.forEach { merged[it.epochDay] = it }
+                holidaysByEpochDayFlow.value = merged
+            }
         }
     }
 
-    private fun startLiveStopwatchTicker() {
-        tickerJob = viewModelScope.launch {
-            repository.observeActiveHeroTask()
-                .map { hero -> hero?.takeIf { it.isTimerRunning }?.id }
-                .distinctUntilChanged()
-                .collectLatest { runningHeroId ->
-                    if (runningHeroId == null) return@collectLatest
-                    var ticksSinceFlush = 0
-                    while (isActive) {
-                        delay(1_000L)
-                        val hero = uiState.value.activeHeroTask
-                        if (hero == null || hero.id != runningHeroId || !hero.isTimerRunning) {
-                            break
-                        }
-                        val current = liveTimerFlow.value
-                        val base = if (current.taskId == hero.id) {
-                            maxOf(current.seconds, hero.trackedSeconds)
-                        } else {
-                            hero.trackedSeconds
-                        }
-                        val nextSeconds = base + 1L
-                        liveTimerFlow.value = LiveTimerSnapshot(taskId = hero.id, seconds = nextSeconds)
-                        ticksSinceFlush++
-                        if (ticksSinceFlush >= 10) {
-                            ticksSinceFlush = 0
-                            repository.persistTimerTick(hero.id, nextSeconds)
-                        }
+    fun onCalendarMonthChanged(year: Int, month: Int) {
+        val normalized = normalizeYearMonth(year, month)
+        calendarYearMonthFlow.value = normalized
+        calendarFetchJob?.cancel()
+        calendarFetchJob = viewModelScope.launch {
+            isLoadingCalendarFlow.value = true
+            try {
+                // Ensure offline catalog for target year is immediately visible
+                val merged = LinkedHashMap(holidaysByEpochDayFlow.value)
+                IndonesianHolidayCatalog.holidaysForYear(normalized.first).forEach {
+                    merged.putIfAbsent(it.epochDay, it)
+                }
+                holidaysByEpochDayFlow.value = merged
+
+                val res = repository.fetchCalendarMonth(normalized.first, normalized.second)
+                res.onSuccess { remoteHolidays ->
+                    if (remoteHolidays.isNotEmpty()) {
+                        val updated = LinkedHashMap(holidaysByEpochDayFlow.value)
+                        remoteHolidays.forEach { updated[it.epochDay] = it }
+                        holidaysByEpochDayFlow.value = updated
                     }
                 }
+            } finally {
+                isLoadingCalendarFlow.value = false
+            }
         }
+    }
+
+    fun onCalendarDaySelected(epochDay: Long) {
+        calendarSelectedEpochDayFlow.value = epochDay
+        val ym = DateEpochUtil.yearMonthFromEpochDay(epochDay)
+        if (ym != calendarYearMonthFlow.value) {
+            onCalendarMonthChanged(ym.first, ym.second)
+        }
+    }
+
+    fun jumpCalendarToToday() {
+        val today = baseEpochDayProvider()
+        calendarSelectedEpochDayFlow.value = today
+        val ym = DateEpochUtil.yearMonthFromEpochDay(today)
+        onCalendarMonthChanged(ym.first, ym.second)
+    }
+
+    private fun normalizeYearMonth(year: Int, month: Int): Pair<Int, Int> {
+        var y = year
+        var m = month
+        while (m < 1) {
+            m += 12
+            y -= 1
+        }
+        while (m > 12) {
+            m -= 12
+            y += 1
+        }
+        return y.coerceIn(2020, 2035) to m
+    }
+
+    private fun markLocalMutationForEchoSuppression() {
+        lastLocalMutationAtMillis = clockMillisProvider()
+    }
+
+    private fun isRecentLocalMutationEcho(): Boolean {
+        val last = lastLocalMutationAtMillis
+        if (last <= 0L) return false
+        val elapsed = clockMillisProvider() - last
+        return elapsed in 0L until SELF_MUTATION_ECHO_SUPPRESS_MILLIS
     }
 
     private fun observeSseEvents() {
         val client = sseEventClient ?: return
         sseJob = viewModelScope.launch {
-            sessionStateFlow
-                .map { it.prefs.authToken.isNotBlank() }
-                .distinctUntilChanged()
-                .collectLatest { loggedIn ->
-                    if (!loggedIn) {
-                        sseStateFlow.value = SseConnectionState.OFFLINE
-                        return@collectLatest
-                    }
-                    client.observeEvents(
-                        baseUrlProvider = { sessionStateFlow.value.prefs.serverBaseUrl }
-                    ).collect { event ->
-                        when (event) {
-                            is SseEvent.StateChanged -> {
-                                sseStateFlow.value = event.state
+            combine(
+                sessionStateFlow.map { appPreferences == null || it.prefs.authToken.isNotBlank() },
+                isAppInForegroundFlow,
+                isNetworkOnlineFlow
+            ) { loggedIn, inForeground, isOnline ->
+                loggedIn && inForeground && isOnline
+            }.distinctUntilChanged().collectLatest { shouldStream ->
+                if (!shouldStream) {
+                    sseRefreshJob?.cancel()
+                    sseStateFlow.value = SseConnectionState.OFFLINE
+                    return@collectLatest
+                }
+                client.observeEvents(
+                    baseUrlProvider = { sessionStateFlow.value.prefs.serverBaseUrl }
+                ).collect { event ->
+                    when (event) {
+                        is SseEvent.StateChanged -> {
+                            sseStateFlow.value = event.state
+                        }
+                        is SseEvent.DataMessage -> {
+                            // Ignore keep-alive / heartbeat / handshake banners and immediate self-mutation echoes
+                            if (SseEventClient.isNoiseOrHeartbeatEvent(event.eventType, event.payload)) {
+                                return@collect
                             }
-                            is SseEvent.DataMessage -> {
-                                if (!isSyncingFlow.value) {
-                                    val result = repository.refreshTasksFromServer()
-                                    if (result is SyncResult.Success) {
-                                        recordActivityNotification(
-                                            severity = NotificationSeverity.INFO,
-                                            badgeText = "LIVE SSE",
-                                            title = "Pembaruan jadwal real-time dari server",
-                                            subtitle = "${result.downloadedCount} tiket aktif diperbarui dari ping.fjrx.my.id."
-                                        )
-                                    }
-                                }
+                            if (isRecentLocalMutationEcho()) {
+                                return@collect
                             }
+                            // Coalesce rapid SSE bursts (3s debounce) and execute strict PULL-ONLY refresh.
+                            // NEVER pushes unsynced local rows, eliminating SSE echo flooding loops.
+                            scheduleDebouncedSsePull()
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun scheduleDebouncedSsePull() {
+        sseRefreshJob?.cancel()
+        sseRefreshJob = viewModelScope.launch {
+            delay(SSE_PULL_DEBOUNCE_MILLIS)
+            if (!isActive || !isAppInForegroundFlow.value || isSyncingFlow.value) return@launch
+            isSyncingFlow.value = true
+            try {
+                // Silent pull-only refresh; avoids spamming the Notification Center with "LIVE SSE" entries.
+                repository.pullTasksFromServerOnly()
+            } finally {
+                isSyncingFlow.value = false
+            }
+        }
+    }
+
+    private fun observeNetworkConnectivity() {
+        val monitor = connectivityMonitor ?: return
+        connectivityJob = viewModelScope.launch {
+            var wasOffline = false
+            monitor.isOnline.distinctUntilChanged().collect { online ->
+                isNetworkOnlineFlow.value = online
+                if (!online) {
+                    wasOffline = true
+                } else if (wasOffline) {
+                    wasOffline = false
+                    val isAuthenticated = appPreferences == null ||
+                        sessionStateFlow.value.prefs.authToken.isNotBlank()
+                    if (isAuthenticated && isAppInForegroundFlow.value && !isSyncingFlow.value) {
+                        triggerSyncInternal(isInitialBaselineSync = false, silentOnSuccess = true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observePendingAutoPush() {
+        autoPushJob = viewModelScope.launch {
+            combine(
+                repository.observeUnsyncedCount().map { it > 0 }.distinctUntilChanged(),
+                isNetworkOnlineFlow,
+                isAppInForegroundFlow,
+                sessionStateFlow.map { appPreferences == null || it.prefs.authToken.isNotBlank() }
+            ) { hasUnsynced, isOnline, inForeground, isAuthenticated ->
+                hasUnsynced && isOnline && inForeground && isAuthenticated
+            }.distinctUntilChanged().collectLatest { shouldAutoPush ->
+                if (!shouldAutoPush) return@collectLatest
+                // Safe exponential backoff (15s -> 30s -> 60s -> 120s) with circuit breaker on permanent 4xx errors.
+                val retryDelays = AUTO_PUSH_EXPONENTIAL_BACKOFF_MS
+                for (waitMs in retryDelays) {
+                    delay(waitMs)
+                    if (!isActive || !isAppInForegroundFlow.value) break
+                    if (uiState.value.unsyncedCount <= 0 || !isNetworkOnlineFlow.value) break
+                    if (isPermanentSyncError(repository.getLastSyncError())) break
+                    if (!isSyncingFlow.value) {
+                        triggerSyncInternal(isInitialBaselineSync = false, silentOnSuccess = true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observeLiveFallbackPolling() {
+        fallbackPollingJob = viewModelScope.launch {
+            combine(
+                sseStateFlow,
+                isNetworkOnlineFlow,
+                isAppInForegroundFlow,
+                sessionStateFlow.map { appPreferences == null || it.prefs.authToken.isNotBlank() }
+            ) { sseState, isOnline, inForeground, isAuthenticated ->
+                isAuthenticated && isOnline && inForeground && sseState == SseConnectionState.OFFLINE
+            }.distinctUntilChanged().collectLatest { shouldPoll ->
+                if (!shouldPoll) return@collectLatest
+                while (isActive) {
+                    delay(FALLBACK_POLL_INTERVAL_MILLIS)
+                    if (!isAppInForegroundFlow.value) break
+                    if (!isSyncingFlow.value && isNetworkOnlineFlow.value) {
+                        isSyncingFlow.value = true
+                        try {
+                            // Pull-only polling when SSE is offline so pending upload errors never flood POST /api/tasks
+                            repository.pullTasksFromServerOnly()
+                        } finally {
+                            isSyncingFlow.value = false
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -610,6 +818,7 @@ class ScheduleViewModel(
             selectedEpochDayFlow.value = task.scheduledDateEpochDay
         }
         selectedSheetTaskIdFlow.value = task.id
+        loadTaskDetailWorkspace(task.id)
     }
 
     private fun resetDelegationBaseline(suppressUntilInitialSync: Boolean) {
@@ -623,9 +832,15 @@ class ScheduleViewModel(
     internal fun stopBackgroundJobs() {
         heroSeedJob?.cancel()
         tickerJob?.cancel()
+        calendarFetchJob?.cancel()
         sseJob?.cancel()
+        sseRefreshJob?.cancel()
+        connectivityJob?.cancel()
+        autoPushJob?.cancel()
+        fallbackPollingJob?.cancel()
         delegationJob?.cancel()
         deepLinkJob?.cancel()
+        detailWorkspaceJob?.cancel()
     }
 
     fun onDaySelected(epochDay: Long) {
@@ -642,6 +857,7 @@ class ScheduleViewModel(
 
     fun openTaskDetail(taskId: Long) {
         selectedSheetTaskIdFlow.value = taskId
+        loadTaskDetailWorkspace(taskId)
     }
 
     fun openTaskFromNotification(taskId: Long) {
@@ -658,33 +874,376 @@ class ScheduleViewModel(
 
     fun dismissTaskDetail() {
         selectedSheetTaskIdFlow.value = null
+        detailWorkspaceJob?.cancel()
+    }
+
+    fun refreshTaskDetailWorkspace(taskId: Long) {
+        loadTaskDetailWorkspace(taskId)
+    }
+
+    private fun loadTaskDetailWorkspace(taskId: Long) {
+        detailWorkspaceJob?.cancel()
+        if (taskId <= 0L) {
+            detailWorkspaceFlow.value = TaskDetailWorkspaceState(
+                taskId = taskId,
+                statusNotice = "Tiket lokal — sinkronkan ke server untuk melihat/mengunggah lampiran & komentar."
+            )
+            return
+        }
+        val cachedAttachments = uiState.value.allTasks
+            .firstOrNull { it.id == taskId }
+            ?.attachments
+            .orEmpty()
+        val preserveExisting = detailWorkspaceFlow.value.taskId == taskId
+        detailWorkspaceFlow.value = if (preserveExisting) {
+            detailWorkspaceFlow.value.copy(
+                attachments = detailWorkspaceFlow.value.attachments.ifEmpty { cachedAttachments },
+                isLoadingAttachments = true,
+                isLoadingComments = true,
+                isLoadingActivities = true,
+                statusNotice = null
+            )
+        } else {
+            TaskDetailWorkspaceState(
+                taskId = taskId,
+                attachments = cachedAttachments,
+                isLoadingAttachments = true,
+                isLoadingComments = true,
+                isLoadingActivities = true
+            )
+        }
+        detailWorkspaceJob = viewModelScope.launch {
+            launch {
+                val res = repository.fetchTaskAttachments(taskId)
+                if (detailWorkspaceFlow.value.taskId == taskId) {
+                    res.fold(
+                        onSuccess = { list ->
+                            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                                attachments = list,
+                                isLoadingAttachments = false
+                            )
+                        },
+                        onFailure = { err ->
+                            val current = detailWorkspaceFlow.value
+                            detailWorkspaceFlow.value = current.copy(
+                                isLoadingAttachments = false,
+                                statusNotice = if (current.attachments.isEmpty()) {
+                                    err.localizedMessage
+                                } else {
+                                    current.statusNotice
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+            launch {
+                val res = repository.fetchTaskComments(taskId)
+                if (detailWorkspaceFlow.value.taskId == taskId) {
+                    res.fold(
+                        onSuccess = { list ->
+                            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                                comments = list,
+                                isLoadingComments = false
+                            )
+                        },
+                        onFailure = { err ->
+                            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                                isLoadingComments = false,
+                                statusNotice = detailWorkspaceFlow.value.statusNotice ?: err.localizedMessage
+                            )
+                        }
+                    )
+                }
+            }
+            launch {
+                val res = repository.fetchTaskActivities(taskId)
+                if (detailWorkspaceFlow.value.taskId == taskId) {
+                    res.fold(
+                        onSuccess = { feed ->
+                            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                                activities = feed.items,
+                                isActivitiesFromServer = feed.isFromServer,
+                                isLoadingActivities = false
+                            )
+                        },
+                        onFailure = {
+                            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                                isLoadingActivities = false
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun refreshTaskActivitiesIfOpen(taskId: Long) {
+        if (taskId <= 0L || detailWorkspaceFlow.value.taskId != taskId) return
+        viewModelScope.launch {
+            val res = repository.fetchTaskActivities(taskId)
+            if (detailWorkspaceFlow.value.taskId == taskId) {
+                res.onSuccess { feed ->
+                    detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                        activities = feed.items,
+                        isActivitiesFromServer = feed.isFromServer,
+                        isLoadingActivities = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun uploadTaskAttachment(
+        taskId: Long,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray
+    ) {
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                taskId = taskId,
+                isUploadingAttachment = true,
+                statusNotice = null
+            )
+            val result = repository.uploadTaskAttachment(
+                taskId = taskId,
+                fileName = fileName,
+                mimeType = mimeType,
+                bytes = bytes
+            )
+            result.fold(
+                onSuccess = { uploaded ->
+                    val current = detailWorkspaceFlow.value
+                    val updatedList = (current.attachments + uploaded).distinctBy {
+                        if (it.fileUrl.isNotBlank()) "url:${it.fileUrl}" else "id:${it.id}"
+                    }
+                    detailWorkspaceFlow.value = current.copy(
+                        attachments = updatedList,
+                        isUploadingAttachment = false,
+                        statusNotice = null
+                    )
+                    syncMessageFlow.value = "Lampiran \"${uploaded.fileName}\" berhasil diunggah."
+                    refreshTaskActivitiesIfOpen(taskId)
+                },
+                onFailure = { err ->
+                    val msg = err.localizedMessage ?: "Gagal mengunggah lampiran."
+                    detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                        isUploadingAttachment = false,
+                        statusNotice = msg
+                    )
+                    syncMessageFlow.value = msg
+                }
+            )
+        }
+    }
+
+    fun postTaskComment(taskId: Long, commentText: String) {
+        val cleanText = commentText.trim()
+        if (cleanText.isEmpty()) return
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                taskId = taskId,
+                isPostingComment = true,
+                statusNotice = null
+            )
+            val result = repository.postTaskComment(taskId = taskId, commentText = cleanText)
+            result.fold(
+                onSuccess = { posted ->
+                    val current = detailWorkspaceFlow.value
+                    val updatedList = (current.comments + posted)
+                        .distinctBy { it.id }
+                        .sortedBy { it.createdAtMillis }
+                    detailWorkspaceFlow.value = current.copy(
+                        comments = updatedList,
+                        isPostingComment = false,
+                        statusNotice = null
+                    )
+                    syncMessageFlow.value = "Catatan progres ditambahkan ke diskusi tiket."
+                    refreshTaskActivitiesIfOpen(taskId)
+                },
+                onFailure = { err ->
+                    val msg = err.localizedMessage ?: "Gagal mengirim komentar."
+                    detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(
+                        isPostingComment = false,
+                        statusNotice = msg
+                    )
+                    syncMessageFlow.value = msg
+                }
+            )
+        }
+    }
+
+    fun snoozeTask(taskId: Long, option: SnoozeOption) {
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val nowMillis = System.currentTimeMillis()
+            val cal = Calendar.getInstance(DateEpochUtil.JAKARTA_TIME_ZONE).apply {
+                timeInMillis = nowMillis
+            }
+            var targetEpochDay: Long? = null
+            var targetTimeMinutes: Int? = null
+            val snoozeUntilMillis = when (option) {
+                SnoozeOption.ONE_HOUR -> {
+                    cal.add(Calendar.HOUR_OF_DAY, 1)
+                    targetEpochDay = DateEpochUtil.epochDayFromMillis(cal.timeInMillis)
+                    targetTimeMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+                    cal.timeInMillis
+                }
+                SnoozeOption.THREE_HOURS -> {
+                    cal.add(Calendar.HOUR_OF_DAY, 3)
+                    targetEpochDay = DateEpochUtil.epochDayFromMillis(cal.timeInMillis)
+                    targetTimeMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+                    cal.timeInMillis
+                }
+                SnoozeOption.TOMORROW_MORNING -> {
+                    val tomorrowEpoch = baseEpochDayProvider() + 1L
+                    targetEpochDay = tomorrowEpoch
+                    targetTimeMinutes = 9 * 60
+                    val ymdCal = Calendar.getInstance(DateEpochUtil.JAKARTA_TIME_ZONE).apply {
+                        timeInMillis = nowMillis
+                        add(Calendar.DAY_OF_YEAR, 1)
+                        set(Calendar.HOUR_OF_DAY, 9)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    ymdCal.timeInMillis
+                }
+            }
+            repository.snoozeTask(
+                taskId = taskId,
+                snoozeUntilMillis = snoozeUntilMillis,
+                newEpochDay = targetEpochDay,
+                newTimeMinutes = targetTimeMinutes
+            )
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            syncMessageFlow.value = "Tiket ditunda: ${option.label}."
+            refreshTaskActivitiesIfOpen(taskId)
+        }
+    }
+
+    fun setTaskBlocked(taskId: Long, isBlocked: Boolean, reason: String? = null) {
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            if (isBlocked) {
+                flushCurrentRunningTimer()
+            }
+            repository.setTaskBlocked(
+                taskId = taskId,
+                isBlocked = isBlocked,
+                reason = reason
+            )
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            syncMessageFlow.value = if (isBlocked) {
+                val label = reason?.trim()?.takeIf { it.isNotEmpty() } ?: "Menunggu vendor / sparepart"
+                "Tiket ditandai TERBLOKIR ($label)."
+            } else {
+                "Status terblokir dilepas — tiket siap dilanjutkan."
+            }
+            refreshTaskActivitiesIfOpen(taskId)
+        }
     }
 
     fun toggleChecklistItem(taskId: Long, checklistId: Long) {
         viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
             repository.toggleChecklistItem(taskId, checklistId)
+            refreshTaskActivitiesIfOpen(taskId)
         }
     }
 
     fun toggleTaskTimer(taskId: Long) {
+        workTask(taskId)
+    }
+
+    fun workTask(taskId: Long) {
         viewModelScope.launch {
-            flushCurrentRunningTimer()
-            repository.toggleTaskTimer(taskId)
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val result = repository.workTask(taskId)
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            result.fold(
+                onSuccess = { msg ->
+                    syncMessageFlow.value = msg
+                    refreshTaskActivitiesIfOpen(taskId)
+                },
+                onFailure = { err ->
+                    syncMessageFlow.value = err.localizedMessage ?: "Gagal memulai pengerjaan tiket."
+                }
+            )
+        }
+    }
+
+    fun claimTask(taskId: Long) {
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val result = repository.claimTask(taskId)
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            result.fold(
+                onSuccess = { claimed ->
+                    syncMessageFlow.value = "📌 Tiket ${claimed.ticketCode} berhasil diambil."
+                    refreshTaskActivitiesIfOpen(taskId)
+                },
+                onFailure = { err ->
+                    syncMessageFlow.value = err.localizedMessage ?: "Gagal mengambil tiket."
+                }
+            )
+        }
+    }
+
+    fun deleteTask(taskId: Long) {
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val result = repository.deleteTask(taskId)
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            result.fold(
+                onSuccess = {
+                    if (selectedSheetTaskIdFlow.value == taskId) {
+                        dismissTaskDetail()
+                    }
+                    syncMessageFlow.value = "Tiket berhasil dihapus."
+                },
+                onFailure = { err ->
+                    syncMessageFlow.value = err.localizedMessage
+                        ?: "Anda tidak memiliki izin untuk menghapus tiket ini."
+                }
+            )
         }
     }
 
     fun updateTaskStage(taskId: Long, newStage: Stage) {
         viewModelScope.launch {
-            flushCurrentRunningTimer()
+            markLocalMutationForEchoSuppression()
             repository.updateTaskStage(taskId, newStage)
+            refreshTaskActivitiesIfOpen(taskId)
         }
     }
 
     fun markTaskCompleted(taskId: Long) {
         viewModelScope.launch {
-            flushCurrentRunningTimer()
-            repository.markTaskCompleted(taskId)
-            syncMessageFlow.value = "Tiket ditandai SELESAI & tersimpan di database lokal."
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val result = repository.completeTaskWithPolicy(taskId)
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            result.fold(
+                onSuccess = {
+                    if (selectedSheetTaskIdFlow.value == taskId) {
+                        dismissTaskDetail()
+                    }
+                    syncMessageFlow.value = "Tiket ditandai SELESAI."
+                },
+                onFailure = { err ->
+                    syncMessageFlow.value = err.localizedMessage
+                        ?: "Anda tidak memiliki izin untuk menyelesaikan tiket ini."
+                }
+            )
         }
     }
 
@@ -697,6 +1256,50 @@ class ScheduleViewModel(
         }
     }
 
+    fun onAppResumed() {
+        isAppInForegroundFlow.value = true
+        syncTodayHorizon(selectToday = false)
+        val now = clockMillisProvider()
+        if (lastResumeSyncAtMillis > 0L && now - lastResumeSyncAtMillis < RESUME_SYNC_COOLDOWN_MILLIS) return
+        val isAuthenticated = appPreferences == null || sessionStateFlow.value.prefs.authToken.isNotBlank()
+        if (isAuthenticated && isNetworkOnlineFlow.value && !isSyncingFlow.value) {
+            lastResumeSyncAtMillis = now
+            triggerSyncInternal(isInitialBaselineSync = false, silentOnSuccess = true)
+        }
+    }
+
+    fun onAppBackgrounded() {
+        isAppInForegroundFlow.value = false
+        sseRefreshJob?.cancel()
+        flushActiveTimerOnBackground()
+    }
+
+    fun refreshCatalogs() {
+        val isAuthenticated = appPreferences == null || sessionStateFlow.value.prefs.authToken.isNotBlank()
+        if (!isAuthenticated || !isNetworkOnlineFlow.value) return
+        viewModelScope.launch {
+            repository.refreshCatalogsFromServer()
+        }
+    }
+
+    fun createQuickTask(draft: QuickTaskDraft) {
+        createQuickTask(
+            title = draft.title,
+            category = draft.category,
+            priority = draft.priority,
+            location = draft.location,
+            scheduledTimeMinutes = draft.scheduledTimeMinutes,
+            technicalNotes = draft.technicalNotes,
+            labels = draft.labels,
+            targetEpochDay = draft.targetEpochDay,
+            assigneeIds = draft.assigneeIds,
+            labelIds = draft.labelIds,
+            checklistSteps = draft.checklistSteps,
+            isRecurring = draft.isRecurring,
+            recurrenceInterval = draft.recurrenceInterval?.apiValue
+        )
+    }
+
     fun createQuickTask(
         title: String,
         category: TicketCategory,
@@ -705,7 +1308,12 @@ class ScheduleViewModel(
         scheduledTimeMinutes: Int? = null,
         technicalNotes: String = "",
         labels: List<String> = emptyList(),
-        targetEpochDay: Long? = null
+        targetEpochDay: Long? = null,
+        assigneeIds: List<Long> = emptyList(),
+        labelIds: List<Long> = emptyList(),
+        checklistSteps: List<String> = emptyList(),
+        isRecurring: Boolean = false,
+        recurrenceInterval: String? = null
     ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isEmpty()) return
@@ -719,6 +1327,7 @@ class ScheduleViewModel(
             selectedEpochDayFlow.value = todayEpochDay
         }
         pendingSelfCreatedTitles.add(cleanTitle)
+        markLocalMutationForEchoSuppression()
         viewModelScope.launch {
             try {
                 val created = repository.createQuickTask(
@@ -729,20 +1338,35 @@ class ScheduleViewModel(
                     location = location,
                     scheduledTimeMinutes = cleanScheduledMinutes,
                     technicalNotes = technicalNotes,
-                    labels = labels
+                    labels = labels,
+                    assigneeIds = assigneeIds,
+                    labelIds = labelIds,
+                    checklistSteps = checklistSteps,
+                    isRecurring = isRecurring,
+                    recurrenceInterval = recurrenceInterval
                 )
                 if (created.id > 0L) {
                     knownAssignedTaskIds.add(created.id)
                 }
-                syncMessageFlow.value = if (isPlannedFuture) {
+                val baseSummary = if (isPlannedFuture) {
                     val clockSuffix = cleanScheduledMinutes?.let {
                         " pukul ${DateEpochUtil.formatScheduledClock(it)}"
                     }.orEmpty()
-                    "Tiket ${created.ticketCode} dijadwalkan untuk ${DateEpochUtil.formatFullDate(resolvedEpochDay)}$clockSuffix."
+                    "Tiket ${created.ticketCode} dijadwalkan untuk ${DateEpochUtil.formatFullDate(resolvedEpochDay)}$clockSuffix"
                 } else if (cleanScheduledMinutes != null) {
-                    "Tiket ${created.ticketCode} dijadwalkan hari ini pukul ${DateEpochUtil.formatScheduledClock(cleanScheduledMinutes)}."
+                    "Tiket ${created.ticketCode} dijadwalkan hari ini pukul ${DateEpochUtil.formatScheduledClock(cleanScheduledMinutes)}"
                 } else {
-                    "Tiket ${created.ticketCode} ditambahkan ke jadwal hari ini."
+                    "Tiket ${created.ticketCode} ditambahkan ke jadwal hari ini"
+                }
+                syncMessageFlow.value = if (created.isSynced) {
+                    "$baseSummary & langsung tersinkron ke server."
+                } else {
+                    val errorHint = repository.getLastSyncError()?.take(90)
+                    if (!errorHint.isNullOrBlank()) {
+                        "$baseSummary (antre auto-sync: $errorHint)."
+                    } else {
+                        "$baseSummary (tersimpan lokal, akan sync otomatis saat online)."
+                    }
                 }
             } finally {
                 pendingSelfCreatedTitles.remove(cleanTitle)
@@ -751,10 +1375,13 @@ class ScheduleViewModel(
     }
 
     fun triggerSync() {
-        triggerSyncInternal(isInitialBaselineSync = false)
+        triggerSyncInternal(isInitialBaselineSync = false, silentOnSuccess = false)
     }
 
-    private fun triggerSyncInternal(isInitialBaselineSync: Boolean) {
+    private fun triggerSyncInternal(
+        isInitialBaselineSync: Boolean,
+        silentOnSuccess: Boolean = false
+    ) {
         if (isSyncingFlow.value) return
         syncTodayHorizon(selectToday = false)
         if (isInitialBaselineSync) {
@@ -766,15 +1393,33 @@ class ScheduleViewModel(
                 flushCurrentRunningTimer()
                 when (val result = repository.refreshTasksFromServer()) {
                     is SyncResult.Success -> {
-                        syncMessageFlow.value =
-                            "Tersinkron ke server PingDulu (${result.downloadedCount} tiket, ${result.uploadedCount} unggah)."
-                        if (result.downloadedCount > 0 || result.uploadedCount > 0) {
+                        if (result.failedUploadCount > 0) {
+                            val detail = result.lastUploadError?.take(95) ?: "periksa koneksi server"
+                            syncMessageFlow.value =
+                                "Unduh ${result.downloadedCount} tiket, namun ${result.failedUploadCount} gagal unggah ($detail)."
                             recordActivityNotification(
-                                severity = NotificationSeverity.INFO,
-                                badgeText = "SYNC SUKSES",
-                                title = "Sinkronisasi server selesai",
-                                subtitle = "${result.downloadedCount} tiket diunduh, ${result.uploadedCount} perubahan lokal terunggah."
+                                severity = NotificationSeverity.WARNING,
+                                badgeText = "UNGGAH GAGAL",
+                                title = "${result.failedUploadCount} tiket belum terunggah ke server",
+                                subtitle = detail
                             )
+                        } else {
+                            if (!silentOnSuccess || result.uploadedCount > 0) {
+                                syncMessageFlow.value =
+                                    "Tersinkron ke server PingDulu (${result.downloadedCount} tiket, ${result.uploadedCount} unggah)."
+                            }
+                            // Only record SYNC SUKSES in Notification Center for explicit manual syncs,
+                            // preventing unread badge spam on silent resume / reconnect / startup syncs.
+                            if (!silentOnSuccess && !isInitialBaselineSync &&
+                                (result.downloadedCount > 0 || result.uploadedCount > 0)
+                            ) {
+                                recordActivityNotification(
+                                    severity = NotificationSeverity.INFO,
+                                    badgeText = "SYNC SUKSES",
+                                    title = "Sinkronisasi server selesai",
+                                    subtitle = "${result.downloadedCount} tiket diunduh, ${result.uploadedCount} perubahan lokal terunggah."
+                                )
+                            }
                         }
                     }
                     is SyncResult.AuthRequired -> {
@@ -787,12 +1432,14 @@ class ScheduleViewModel(
                         )
                     }
                     is SyncResult.OfflineFallback -> {
-                        val pendingInfo = if (result.pendingUploadCount > 0) {
-                            "${result.pendingUploadCount} perubahan antre di Room lokal."
-                        } else {
-                            "Data Room lokal siap digunakan offline."
+                        if (!silentOnSuccess) {
+                            val pendingInfo = if (result.pendingUploadCount > 0) {
+                                "${result.pendingUploadCount} perubahan antre di Room lokal (${result.reason.take(80)})."
+                            } else {
+                                "Data Room lokal siap digunakan offline."
+                            }
+                            syncMessageFlow.value = "Mode Offline: $pendingInfo"
                         }
-                        syncMessageFlow.value = "Mode Offline: $pendingInfo"
                     }
                 }
             } finally {
@@ -872,6 +1519,7 @@ class ScheduleViewModel(
                         loginErrorMessageFlow.value = null
                         syncTodayHorizon(selectToday = true)
                         syncMessageFlow.value = "Login berhasil! Mengunduh jadwal tiket..."
+                        launch { repository.refreshCatalogsFromServer() }
                         triggerSyncInternal(isInitialBaselineSync = true)
                     },
                     onFailure = { err ->
@@ -888,9 +1536,9 @@ class ScheduleViewModel(
 
     fun logoutFromServer() {
         viewModelScope.launch {
-            flushCurrentRunningTimer()
-            liveTimerFlow.value = LiveTimerSnapshot()
             selectedSheetTaskIdFlow.value = null
+            detailWorkspaceJob?.cancel()
+            detailWorkspaceFlow.value = TaskDetailWorkspaceState()
             pendingNotificationTaskIdFlow.value = null
             loginErrorMessageFlow.value = null
             syncMessageFlow.value = null
@@ -925,27 +1573,23 @@ class ScheduleViewModel(
     }
 
     fun flushActiveTimerOnBackground() {
-        viewModelScope.launch {
-            flushCurrentRunningTimer()
-        }
+        // Stopwatch removed in Patch Ke-2; retained as no-op for lifecycle compatibility.
     }
 
     private suspend fun flushCurrentRunningTimer() {
-        val snapshot = liveTimerFlow.value
-        val activeHero = uiState.value.activeHeroTask
-        if (activeHero != null && activeHero.isTimerRunning && snapshot.taskId == activeHero.id && snapshot.seconds > activeHero.trackedSeconds) {
-            repository.persistTimerTick(activeHero.id, snapshot.seconds)
-        }
+        // Stopwatch removed in Patch Ke-2.
     }
 
     private fun buildScheduleDays(
         allTasks: List<Task>,
         baseEpochDay: Long,
-        horizonEpochDays: List<Long>
+        horizonEpochDays: List<Long>,
+        holidaysByEpochDay: Map<Long, NationalHoliday>
     ): List<DayHorizonModel> {
         val groupedByDay = allTasks.groupBy { it.scheduledDateEpochDay }
         return horizonEpochDays.map { epochDay ->
             val dayTasks = groupedByDay[epochDay].orEmpty()
+            val holiday = holidaysByEpochDay[epochDay]
             val indicator = when {
                 dayTasks.isEmpty() -> DayIndicatorType.NONE
                 dayTasks.any { it.priority == Priority.P1_CRITICAL && it.stage != Stage.DONE } ->
@@ -962,7 +1606,9 @@ class ScheduleViewModel(
                 fullDateLabel = DateEpochUtil.formatFullDate(epochDay),
                 isToday = epochDay == baseEpochDay,
                 taskCount = dayTasks.size,
-                indicatorType = indicator
+                indicatorType = indicator,
+                isHoliday = holiday != null,
+                holidayName = holiday?.name
             )
         }
     }
@@ -975,7 +1621,7 @@ class ScheduleViewModel(
         category: NotificationCategory = NotificationCategory.SYNC,
         taskId: Long? = null
     ) {
-        val nowMillis = System.currentTimeMillis()
+        val nowMillis = clockMillisProvider()
         val timeLabel = DateEpochUtil.formatReportedTimeCompact(nowMillis)
         val seq = ++activityNotificationSeq
         val entry = FieldNotificationItem(
@@ -988,12 +1634,17 @@ class ScheduleViewModel(
             timestampLabel = timeLabel,
             taskId = taskId
         )
-        activityNotificationsFlow.value = (listOf(entry) + activityNotificationsFlow.value).take(8)
+        // Deduplicate repeating transient sync status badges so they replace instead of piling up
+        val existingFiltered = if (category == NotificationCategory.SYNC && taskId == null) {
+            activityNotificationsFlow.value.filterNot { it.badgeText == badgeText }
+        } else {
+            activityNotificationsFlow.value
+        }
+        activityNotificationsFlow.value = (listOf(entry) + existingFiltered).take(8)
     }
 
     private fun buildOperationalNotifications(
         allTasks: List<Task>,
-        activeHero: Task?,
         unsyncedTasks: List<Task>,
         syncBadge: SyncStatusBadge,
         todayEpochDay: Long,
@@ -1002,21 +1653,7 @@ class ScheduleViewModel(
     ): List<FieldNotificationItem> {
         val items = mutableListOf<FieldNotificationItem>()
 
-        // 1. Active running stopwatch reminder
-        if (activeHero != null && activeHero.isTimerRunning) {
-            items += FieldNotificationItem(
-                id = "timer_running_${activeHero.id}",
-                category = NotificationCategory.SCHEDULE,
-                severity = NotificationSeverity.ACTIVE,
-                title = "Stopwatch sedang aktif · ${activeHero.ticketCode}",
-                subtitle = "${activeHero.title} — pastikan jeda atau selesaikan jika pengerjaan rampung.",
-                badgeText = "TIMER AKTIF",
-                timestampLabel = DateEpochUtil.formatReportedTimeCompact(activeHero.createdAtMillis),
-                taskId = activeHero.id
-            )
-        }
-
-        // 2. Active P1 Critical tickets (unfinished)
+        // 1. Active P1 Critical tickets (unfinished)
         val activeP1Tasks = allTasks
             .filter { it.priority == Priority.P1_CRITICAL && it.stage != Stage.DONE }
             .sortedWith(
@@ -1091,13 +1728,31 @@ class ScheduleViewModel(
         }
         return "$timeGreeting, $name"
     }
+
+    companion object {
+        const val SSE_PULL_DEBOUNCE_MILLIS = 3_000L
+        const val SELF_MUTATION_ECHO_SUPPRESS_MILLIS = 4_000L
+        const val FALLBACK_POLL_INTERVAL_MILLIS = 90_000L
+        const val RESUME_SYNC_COOLDOWN_MILLIS = 45_000L
+        val AUTO_PUSH_EXPONENTIAL_BACKOFF_MS = longArrayOf(15_000L, 30_000L, 60_000L, 120_000L)
+
+        internal fun isPermanentSyncError(error: String?): Boolean {
+            if (error.isNullOrBlank()) return false
+            return error.contains("HTTP 400") ||
+                error.contains("HTTP 401") ||
+                error.contains("HTTP 403") ||
+                error.contains("HTTP 404") ||
+                error.contains("HTTP 422")
+        }
+    }
 }
 
 class ScheduleViewModelFactory(
     private val repository: TaskRepository,
     private val appPreferences: AppPreferences,
     private val sseEventClient: SseEventClient,
-    private val notificationDispatcher: TaskNotificationDispatcher? = null
+    private val notificationDispatcher: TaskNotificationDispatcher? = null,
+    private val connectivityMonitor: ConnectivityMonitor? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1106,7 +1761,9 @@ class ScheduleViewModelFactory(
                 repository = repository,
                 appPreferences = appPreferences,
                 sseEventClient = sseEventClient,
-                notificationDispatcher = notificationDispatcher
+                notificationDispatcher = notificationDispatcher,
+                connectivityMonitor = connectivityMonitor,
+                enableAutoSyncRetry = true
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

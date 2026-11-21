@@ -163,8 +163,14 @@ interface TaskDao {
     @Query("UPDATE tasks SET is_synced = 1 WHERE id = :taskId")
     suspend fun markTaskSynced(taskId: Long)
 
+    @Query("SELECT * FROM tasks WHERE client_sync_id = :clientSyncId LIMIT 1")
+    suspend fun getTaskByClientSyncId(clientSyncId: String): TaskEntity?
+
     @Query("DELETE FROM tasks WHERE id = :taskId")
     suspend fun deleteTaskById(taskId: Long)
+
+    @Query("DELETE FROM tasks WHERE id < 0 AND client_sync_id = :clientSyncId")
+    suspend fun deletePendingByClientSyncId(clientSyncId: String)
 
     @Query("DELETE FROM tasks WHERE is_synced = 1 AND id NOT IN (:activeIds)")
     suspend fun deleteStaleSyncedTasks(activeIds: List<Long>)

@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,8 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Handyman
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,7 +48,9 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.Stage
 import com.example.domain.model.Task
+import com.example.domain.model.TaskPolicyHelper
 import com.example.presentation.components.CategoryPill
+import com.example.presentation.components.PlannedWorkBadge
 import com.example.presentation.components.PriorityBadge
 import com.example.presentation.components.StackedAvatarGroup
 import com.example.presentation.components.TaskLabelRow
@@ -58,7 +63,10 @@ fun KanbanBoardScreen(
     uiState: ScheduleUiState,
     onTaskClicked: (Long) -> Unit,
     onMoveStage: (Long, Stage) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onWorkTask: (Long) -> Unit = { onMoveStage(it, Stage.IN_PROGRESS) },
+    onClaimTask: (Long) -> Unit = {},
+    onCompleteTask: (Long) -> Unit = { onMoveStage(it, Stage.DONE) }
 ) {
     var selectedStage by rememberSaveable { mutableStateOf(Stage.IN_PROGRESS) }
     val extendedColors = PingDuluTheme.extendedColors
@@ -70,7 +78,9 @@ fun KanbanBoardScreen(
     val stageTasks = uiState.allTasks
         .filter { it.stage == selectedStage }
         .sortedWith(
-            compareBy<Task> { it.priority.sortRank }
+            compareBy<Task> { it.scheduledDateEpochDay }
+                .thenBy { it.scheduledTimeMinutes ?: 9999 }
+                .thenBy { it.priority.sortRank }
                 .thenByDescending { it.createdAtMillis }
                 .thenByDescending { it.id }
         )
@@ -190,8 +200,14 @@ fun KanbanBoardScreen(
                     items(items = stageTasks, key = { it.id }) { task ->
                         KanbanStageTaskCard(
                             task = task,
+                            currentUserId = uiState.currentUserId,
+                            currentUserName = uiState.technicianName,
+                            currentUserRole = uiState.technicianRole,
                             onCardClick = { onTaskClicked(task.id) },
-                            onMoveStage = { nextStage -> onMoveStage(task.id, nextStage) }
+                            onMoveStage = { nextStage -> onMoveStage(task.id, nextStage) },
+                            onWorkTask = { onWorkTask(task.id) },
+                            onClaimTask = { onClaimTask(task.id) },
+                            onCompleteTask = { onCompleteTask(task.id) }
                         )
                     }
                 }
@@ -241,14 +257,28 @@ private fun StageBoardPill(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun KanbanStageTaskCard(
     task: Task,
+    currentUserId: Long,
+    currentUserName: String,
+    currentUserRole: String,
     onCardClick: () -> Unit,
-    onMoveStage: (Stage) -> Unit
+    onMoveStage: (Stage) -> Unit,
+    onWorkTask: () -> Unit,
+    onClaimTask: () -> Unit,
+    onCompleteTask: () -> Unit
 ) {
     val extendedColors = PingDuluTheme.extendedColors
     val accentColor = extendedColors.accentForStage(task.stage)
+    val isUnassigned = TaskPolicyHelper.isUnassigned(task)
+    val canComplete = TaskPolicyHelper.canCompleteOrDelete(
+        task = task,
+        currentUserId = currentUserId,
+        currentUserName = currentUserName,
+        currentUserRole = currentUserRole
+    )
 
     Surface(
         onClick = onCardClick,
@@ -302,11 +332,21 @@ private fun KanbanStageTaskCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            TaskLabelRow(
-                labels = task.resolvedLabels,
-                maxVisible = 3,
-                compact = true
-            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                PlannedWorkBadge(
+                    task = task,
+                    compact = true,
+                    showDateWhenFuture = true
+                )
+                TaskLabelRow(
+                    labels = task.resolvedLabels,
+                    maxVisible = if (task.isPlannedWork()) 2 else 3,
+                    compact = true
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -330,35 +370,45 @@ private fun KanbanStageTaskCard(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // Quick Stage Transition Pills
+            // Quick Stage Transition Pills (Patch Ke-2 Policy-Aware)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (task.stage != Stage.BACKLOG) {
+                if (task.stage != Stage.DONE && isUnassigned) {
                     QuickStageActionButton(
-                        label = "Ke Antrean",
-                        icon = Icons.Rounded.Schedule,
-                        tint = extendedColors.pillBacklog,
-                        onClick = { onMoveStage(Stage.BACKLOG) },
+                        label = "Ambil Task",
+                        icon = Icons.Rounded.AssignmentInd,
+                        tint = PingDuluNavy,
+                        onClick = onClaimTask,
                         modifier = Modifier.weight(1f)
                     )
+                } else {
+                    if (task.stage != Stage.BACKLOG) {
+                        QuickStageActionButton(
+                            label = "Ke Antrean",
+                            icon = Icons.Rounded.Schedule,
+                            tint = extendedColors.pillBacklog,
+                            onClick = { onMoveStage(Stage.BACKLOG) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (task.stage != Stage.IN_PROGRESS) {
+                        QuickStageActionButton(
+                            label = "Kerjakan",
+                            icon = Icons.Rounded.Handyman,
+                            tint = extendedColors.pillInProgress,
+                            onClick = onWorkTask,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
-                if (task.stage != Stage.IN_PROGRESS) {
-                    QuickStageActionButton(
-                        label = "Kerjakan",
-                        icon = Icons.Rounded.PlayArrow,
-                        tint = extendedColors.pillInProgress,
-                        onClick = { onMoveStage(Stage.IN_PROGRESS) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                if (task.stage != Stage.DONE) {
+                if (task.stage != Stage.DONE && canComplete) {
                     QuickStageActionButton(
                         label = "Selesai",
                         icon = Icons.Rounded.CheckCircle,
                         tint = extendedColors.pillDone,
-                        onClick = { onMoveStage(Stage.DONE) },
+                        onClick = onCompleteTask,
                         modifier = Modifier.weight(1f)
                     )
                 }

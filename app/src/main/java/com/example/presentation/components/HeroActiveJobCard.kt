@@ -30,9 +30,6 @@ import androidx.compose.material.icons.rounded.AccessTimeFilled
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Navigation
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -40,7 +37,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -62,15 +58,14 @@ import com.example.ui.theme.LeadStarAmber
 import com.example.ui.theme.PillDoneMint
 import com.example.ui.theme.PingDuluNavyDark
 import com.example.ui.theme.StopwatchMint
-import com.example.ui.theme.StopwatchTextStyle
 import com.example.ui.theme.SyncGreenBgDark
 import com.example.ui.theme.TicketCodeTextStyle
 
 @Composable
 fun HeroActiveJobCard(
     task: Task?,
-    liveSeconds: Long,
-    onToggleTimer: (Long) -> Unit,
+    liveSeconds: Long = 0L,
+    onToggleTimer: (Long) -> Unit = {},
     onOpenMaps: (String) -> Unit,
     onOpenWorksheet: (Long) -> Unit,
     modifier: Modifier = Modifier
@@ -160,16 +155,12 @@ fun HeroActiveJobCard(
                             Box(
                                 modifier = Modifier
                                     .size(7.dp)
-                                    .alpha(if (task.isTimerRunning) pulseAlpha else 0.7f)
+                                    .alpha(pulseAlpha)
                                     .clip(CircleShape)
-                                    .background(if (task.isTimerRunning) StopwatchMint else LeadStarAmber)
+                                    .background(StopwatchMint)
                             )
                             Text(
-                                text = if (task.isTimerRunning) {
-                                    "PEKERJAAN AKTIF SAAT INI"
-                                } else {
-                                    "PEKERJAAN DIJEDA"
-                                },
+                                text = "SEDANG DIKERJAKAN",
                                 color = Color.White,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
@@ -206,102 +197,22 @@ fun HeroActiveJobCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Colored Label Badges on Navy Hero Surface
+                // Planned Work Badge & Colored Label Badges on Navy Hero Surface
+                if (task.isPlannedWork()) {
+                    PlannedWorkBadge(
+                        task = task,
+                        compact = false,
+                        onDarkSurface = true,
+                        showDateWhenFuture = true
+                    )
+                }
+
                 TaskLabelRow(
                     labels = task.resolvedLabels,
                     maxVisible = 3,
                     compact = true,
                     onDarkSurface = true
                 )
-
-                // Live Stopwatch Row
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Black.copy(alpha = 0.24f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(PillDoneMint.copy(alpha = 0.22f))
-                                    .border(
-                                        1.dp,
-                                        StopwatchMint.copy(alpha = 0.45f),
-                                        RoundedCornerShape(10.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Timer,
-                                    contentDescription = "Stopwatch aktif",
-                                    tint = StopwatchMint,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "LIVE WAKTU PENGERJAAN",
-                                    color = Color.White.copy(alpha = 0.72f),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 0.5.sp
-                                )
-                                Text(
-                                    text = DateEpochUtil.formatStopwatch(liveSeconds),
-                                    modifier = Modifier.testTag("hero_stopwatch_display"),
-                                    style = StopwatchTextStyle,
-                                    color = StopwatchMint
-                                )
-                            }
-                        }
-
-                        FilledTonalButton(
-                            onClick = { onToggleTimer(task.id) },
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .height(40.dp)
-                                .testTag("hero_timer_toggle_button"),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = Color.White.copy(alpha = 0.22f),
-                                contentColor = Color.White
-                            ),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f))
-                        ) {
-                            Icon(
-                                imageVector = if (task.isTimerRunning) {
-                                    Icons.Rounded.Pause
-                                } else {
-                                    Icons.Rounded.PlayArrow
-                                },
-                                contentDescription = if (task.isTimerRunning) "Jeda stopwatch" else "Lanjut stopwatch",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (task.isTimerRunning) "Jeda" else "Lanjut",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.White,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                }
 
                 // Waktu Lapor & Location Metadata
                 Column(
@@ -540,7 +451,7 @@ private fun EmptyHeroJobCard(modifier: Modifier = Modifier) {
                     color = Color.White
                 )
                 Text(
-                    text = "Ketuk salah satu tiket di jadwal untuk memulai stopwatch dan membuka lembar kerja.",
+                    text = "Ketuk salah satu tiket di jadwal untuk menekan Kerjakan dan membuka lembar kerja.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.80f)
                 )

@@ -257,7 +257,7 @@ fun LoginScreen(
                             if (!errorMessage.isNullOrBlank()) onClearError()
                         },
                         label = { Text("Username") },
-                        placeholder = { Text("fajar") },
+                        placeholder = { Text("Masukkan username teknisi") },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Rounded.Person,
@@ -388,20 +388,11 @@ fun LoginScreen(
 
 @Composable
 private fun BrandLogoBadge() {
-    Surface(
-        modifier = Modifier.size(64.dp),
-        shape = RoundedCornerShape(18.dp),
-        color = Color.White.copy(alpha = 0.16f),
-        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.35f))
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = "PD",
-                color = Color.White,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.5).sp
-            )
-        }
-    }
+    com.example.presentation.components.PingDuluLogoMark(
+        size = 66.dp,
+        cornerRadius = 18.dp,
+        borderStroke = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.35f)),
+        contentDescription = "PingDulu Logo",
+        modifier = Modifier.testTag("login_pingdulu_logo")
+    )
 }

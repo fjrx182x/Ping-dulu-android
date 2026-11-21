@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.Stage
+import com.example.presentation.calendar.CalendarScreen
 import com.example.presentation.components.AppDestination
 import com.example.presentation.components.FieldOpsDrawerSheet
 import com.example.presentation.components.FieldToolkitBottomSheet
@@ -75,7 +76,8 @@ class MainActivity : ComponentActivity() {
             repository = appContainer.taskRepository,
             appPreferences = appContainer.appPreferences,
             sseEventClient = appContainer.sseEventClient,
-            notificationDispatcher = appContainer.notificationHelper
+            notificationDispatcher = appContainer.notificationHelper,
+            connectivityMonitor = appContainer.connectivityMonitor
         )
     }
 
@@ -146,12 +148,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        scheduleViewModel.syncTodayHorizon()
+        scheduleViewModel.onAppResumed()
     }
 
     override fun onStop() {
         super.onStop()
-        scheduleViewModel.flushActiveTimerOnBackground()
+        scheduleViewModel.onAppBackgrounded()
     }
 }
 
@@ -164,7 +166,9 @@ private fun PingDuluAppRoot(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val detailWorkspaceState by viewModel.detailWorkspaceState.collectAsStateWithLifecycle()
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.AGENDA) }
+    var showSpkHistoryFromSettings by rememberSaveable { mutableStateOf(false) }
     var showQuickAddSheet by rememberSaveable { mutableStateOf(false) }
     var activeToolkitTab by rememberSaveable { mutableStateOf<FieldToolkitTab?>(null) }
     var hasPromptedNotificationPermission by rememberSaveable { mutableStateOf(false) }
@@ -194,13 +198,20 @@ private fun PingDuluAppRoot(
 
     LaunchedEffect(agendaDeepLinkNonce) {
         if (agendaDeepLinkNonce > 0) {
+            showSpkHistoryFromSettings = false
             currentDestination = AppDestination.AGENDA
         }
     }
 
     // Return smoothly from secondary tabs to Agenda on system Back press
     BackHandler(enabled = currentDestination != AppDestination.AGENDA) {
+        showSpkHistoryFromSettings = false
         currentDestination = AppDestination.AGENDA
+    }
+
+    // Return from SPK History sub-screen back to Settings (higher priority than tab BackHandler)
+    BackHandler(enabled = currentDestination == AppDestination.SETTINGS && showSpkHistoryFromSettings) {
+        showSpkHistoryFromSettings = false
     }
 
     // Close navigation drawer first when Back is pressed (last-composed enabled BackHandler has highest priority)
@@ -262,7 +273,12 @@ private fun PingDuluAppRoot(
                     if (!useNavigationRail) {
                         PingDuluBottomNavigationBar(
                             currentDestination = currentDestination,
-                            onDestinationSelected = { currentDestination = it },
+                            onDestinationSelected = { dest ->
+                                currentDestination = dest
+                                if (dest != AppDestination.SETTINGS) {
+                                    showSpkHistoryFromSettings = false
+                                }
+                            },
                             onQuickAddClicked = { showQuickAddSheet = true }
                         )
                     }
@@ -276,7 +292,12 @@ private fun PingDuluAppRoot(
                     if (useNavigationRail) {
                         PingDuluNavigationRail(
                             currentDestination = currentDestination,
-                            onDestinationSelected = { currentDestination = it },
+                            onDestinationSelected = { dest ->
+                                currentDestination = dest
+                                if (dest != AppDestination.SETTINGS) {
+                                    showSpkHistoryFromSettings = false
+                                }
+                            },
                             onQuickAddClicked = { showQuickAddSheet = true }
                         )
                     }
@@ -290,7 +311,7 @@ private fun PingDuluAppRoot(
                                     onStatusFilterSelected = viewModel::onStatusFilterSelected,
                                     onLayoutModeSelected = viewModel::onToggleLayoutMode,
                                     onTaskClicked = viewModel::openTaskDetail,
-                                    onToggleHeroTimer = viewModel::toggleTaskTimer,
+                                    onToggleHeroTimer = viewModel::workTask,
                                     onOpenMaps = { location -> openLocationInMaps(context, location) },
                                     onTriggerSync = viewModel::triggerSync,
                                     onToggleTheme = viewModel::toggleTheme,
@@ -305,24 +326,39 @@ private fun PingDuluAppRoot(
                                 KanbanBoardScreen(
                                     uiState = uiState,
                                     onTaskClicked = viewModel::openTaskDetail,
-                                    onMoveStage = viewModel::updateTaskStage
+                                    onMoveStage = viewModel::updateTaskStage,
+                                    onWorkTask = viewModel::workTask,
+                                    onClaimTask = viewModel::claimTask,
+                                    onCompleteTask = viewModel::markTaskCompleted
                                 )
                             }
 
-                            AppDestination.SPK -> {
-                                SpkHistoryScreen(
+                            AppDestination.CALENDAR -> {
+                                CalendarScreen(
                                     uiState = uiState,
+                                    onMonthChanged = viewModel::onCalendarMonthChanged,
+                                    onDaySelected = viewModel::onCalendarDaySelected,
+                                    onJumpToToday = viewModel::jumpCalendarToToday,
                                     onTaskClicked = viewModel::openTaskDetail
                                 )
                             }
 
                             AppDestination.SETTINGS -> {
-                                SettingsSyncScreen(
-                                    uiState = uiState,
-                                    onTriggerSync = viewModel::triggerSync,
-                                    onLogout = viewModel::logoutFromServer,
-                                    onToggleTheme = viewModel::toggleTheme
-                                )
+                                if (showSpkHistoryFromSettings) {
+                                    SpkHistoryScreen(
+                                        uiState = uiState,
+                                        onTaskClicked = viewModel::openTaskDetail,
+                                        onBackClick = { showSpkHistoryFromSettings = false }
+                                    )
+                                } else {
+                                    SettingsSyncScreen(
+                                        uiState = uiState,
+                                        onTriggerSync = viewModel::triggerSync,
+                                        onLogout = viewModel::logoutFromServer,
+                                        onToggleTheme = viewModel::toggleTheme,
+                                        onOpenSpkHistory = { showSpkHistoryFromSettings = true }
+                                    )
+                                }
                             }
                         }
                     }
@@ -338,31 +374,48 @@ private fun PingDuluAppRoot(
             task = selectedTask,
             onDismiss = viewModel::dismissTaskDetail,
             onToggleChecklistItem = viewModel::toggleChecklistItem,
-            onToggleTimer = viewModel::toggleTaskTimer,
+            onToggleTimer = viewModel::workTask,
             onMarkCompleted = viewModel::markTaskCompleted,
             onReopenTask = { taskId -> viewModel.updateTaskStage(taskId, Stage.IN_PROGRESS) },
-            onOpenMaps = { location -> openLocationInMaps(context, location) }
+            onOpenMaps = { location -> openLocationInMaps(context, location) },
+            workspaceState = detailWorkspaceState,
+            serverBaseUrl = uiState.serverBaseUrl,
+            authToken = uiState.authToken,
+            onUploadAttachment = viewModel::uploadTaskAttachment,
+            onPostComment = viewModel::postTaskComment,
+            onSnoozeTask = viewModel::snoozeTask,
+            onSetTaskBlocked = viewModel::setTaskBlocked,
+            onRefreshWorkspace = viewModel::refreshTaskDetailWorkspace,
+            currentUserId = uiState.currentUserId,
+            currentUserName = uiState.technicianName,
+            currentUserRole = uiState.technicianRole,
+            onWorkTask = viewModel::workTask,
+            onClaimTask = viewModel::claimTask,
+            onDeleteTask = viewModel::deleteTask
         )
+    }
+
+    // Refresh users & labels catalog whenever Quick Add Ticket sheet opens
+    LaunchedEffect(showQuickAddSheet) {
+        if (showQuickAddSheet) {
+            viewModel.refreshCatalogs()
+        }
     }
 
     // Global Quick Add Ticket Bottom Sheet
     if (showQuickAddSheet) {
-        val todayLabel = uiState.scheduleDays.firstOrNull { it.isToday }?.fullDateLabel
-            ?: uiState.selectedFullDateLabel
+        val todayHorizon = uiState.scheduleDays.firstOrNull { it.isToday }
+        val todayEpochDay = todayHorizon?.epochDay ?: com.example.domain.model.DateEpochUtil.todayEpochDay()
+        val todayLabel = todayHorizon?.fullDateLabel ?: uiState.selectedFullDateLabel
         QuickAddTaskSheet(
+            todayEpochDay = todayEpochDay,
             todayDateLabel = todayLabel,
+            availableTechnicians = uiState.availableTechnicians,
+            officialLabels = uiState.officialLabels,
+            currentUserId = uiState.currentUserId,
+            currentTechnicianName = uiState.technicianName,
             onDismiss = { showQuickAddSheet = false },
-            onSubmit = { title, category, priority, location, timeMinutes, notes, labels ->
-                viewModel.createQuickTask(
-                    title = title,
-                    category = category,
-                    priority = priority,
-                    location = location,
-                    scheduledTimeMinutes = timeMinutes,
-                    technicalNotes = notes,
-                    labels = labels
-                )
-            }
+            onSubmitDraft = viewModel::createQuickTask
         )
     }
 

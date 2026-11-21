@@ -96,6 +96,27 @@ fun Horizon7DayStrip(
                 )
             }
         }
+
+        val selectedHolidayName = days.firstOrNull { it.epochDay == selectedEpochDay }?.holidayName
+        if (!selectedHolidayName.isNullOrBlank()) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("horizon_selected_holiday_chip"),
+                shape = RoundedCornerShape(10.dp),
+                color = P1Crimson.copy(alpha = 0.10f),
+                border = BorderStroke(1.dp, P1Crimson.copy(alpha = 0.35f))
+            ) {
+                Text(
+                    text = "Tanggal Merah · $selectedHolidayName",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = P1Crimson,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
@@ -117,14 +138,28 @@ private fun DayHorizonChip(
         }
     }
 
-    val containerColor = if (isSelected) PingDuluNavy else MaterialTheme.colorScheme.surface
-    val borderColor = if (isSelected) PingDuluNavy else MaterialTheme.colorScheme.outline
-    val dayNameColor = if (isSelected) {
-        Color.White.copy(alpha = 0.80f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+    val containerColor = when {
+        isSelected && day.isHoliday -> P1Crimson
+        isSelected -> PingDuluNavy
+        day.isHoliday -> P1Crimson.copy(alpha = 0.08f)
+        else -> MaterialTheme.colorScheme.surface
     }
-    val dateNumberColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+    val borderColor = when {
+        isSelected && day.isHoliday -> P1Crimson
+        isSelected -> PingDuluNavy
+        day.isHoliday -> P1Crimson.copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val dayNameColor = when {
+        isSelected -> Color.White.copy(alpha = 0.85f)
+        day.isHoliday -> P1Crimson
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val dateNumberColor = when {
+        isSelected -> Color.White
+        day.isHoliday -> P1Crimson
+        else -> MaterialTheme.colorScheme.onSurface
+    }
 
     Surface(
         onClick = onClick,
@@ -133,7 +168,10 @@ private fun DayHorizonChip(
             .heightIn(min = 76.dp)
             .semantics {
                 selected = isSelected
-                contentDescription = "${day.fullDateLabel}, ${day.taskCount} tiket"
+                contentDescription = buildString {
+                    append("${day.fullDateLabel}, ${day.taskCount} tiket")
+                    if (!day.holidayName.isNullOrBlank()) append(", ${day.holidayName}")
+                }
             }
             .testTag("day_chip_${day.epochDay}"),
         shape = RoundedCornerShape(16.dp),

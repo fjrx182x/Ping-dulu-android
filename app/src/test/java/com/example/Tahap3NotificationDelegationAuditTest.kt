@@ -343,7 +343,12 @@ private class DelegationFakeRepository(
         location: String,
         scheduledTimeMinutes: Int?,
         technicalNotes: String,
-        labels: List<String>
+        labels: List<String>,
+        assigneeIds: List<Long>,
+        labelIds: List<Long>,
+        checklistSteps: List<String>,
+        isRecurring: Boolean,
+        recurrenceInterval: String?
     ): Task {
         // Simulate online server immediately assigning positive ID + currentUserId = 3L
         val created = Task(

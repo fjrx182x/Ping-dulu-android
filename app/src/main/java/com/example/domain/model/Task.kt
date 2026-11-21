@@ -23,7 +23,18 @@ data class Task(
     val dueDateMillis: Long? = null,
     val assignedToId: Long? = null,
     val labels: List<String> = emptyList(),
-    val updatedAtMillis: Long = System.currentTimeMillis()
+    val updatedAtMillis: Long = System.currentTimeMillis(),
+    val clientSyncId: String? = null,
+    val isRecurring: Boolean = false,
+    val recurrenceInterval: String? = null,
+    val isBlocked: Boolean = false,
+    val blockedReason: String? = null,
+    val snoozedUntilMillis: Long? = null,
+    val attachments: List<TaskAttachment> = emptyList(),
+    val createdById: Long? = null,
+    val createdByName: String? = null,
+    val creatorClient: String? = null,
+    val creatorRole: String? = null
 ) {
     val completedChecklistCount: Int
         get() = checklist.count { it.isDone }

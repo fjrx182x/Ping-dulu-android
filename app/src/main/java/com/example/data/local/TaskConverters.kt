@@ -3,6 +3,7 @@ package com.example.data.local
 import androidx.room.TypeConverter
 import com.example.domain.model.Assignee
 import com.example.domain.model.ChecklistItem
+import com.example.domain.model.TaskAttachment
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -49,6 +50,19 @@ class TaskConverters {
             .getOrDefault(emptyList())
     }
 
+    @TypeConverter
+    fun fromAttachmentList(items: List<TaskAttachment>?): String {
+        if (items.isNullOrEmpty()) return "[]"
+        return runCatching { attachmentListAdapter.toJson(items) }.getOrDefault("[]")
+    }
+
+    @TypeConverter
+    fun toAttachmentList(json: String?): List<TaskAttachment> {
+        if (json.isNullOrBlank()) return emptyList()
+        return runCatching { attachmentListAdapter.fromJson(json).orEmpty() }
+            .getOrDefault(emptyList())
+    }
+
     companion object {
         private val moshi: Moshi = Moshi.Builder()
             .addLast(KotlinJsonAdapterFactory())
@@ -69,6 +83,11 @@ class TaskConverters {
             String::class.java
         )
 
+        private val attachmentListType = Types.newParameterizedType(
+            List::class.java,
+            TaskAttachment::class.java
+        )
+
         private val assigneeListAdapter: JsonAdapter<List<Assignee>> =
             moshi.adapter(assigneeListType)
 
@@ -77,5 +96,8 @@ class TaskConverters {
 
         private val stringListAdapter: JsonAdapter<List<String>> =
             moshi.adapter(stringListType)
+
+        private val attachmentListAdapter: JsonAdapter<List<TaskAttachment>> =
+            moshi.adapter(attachmentListType)
     }
 }

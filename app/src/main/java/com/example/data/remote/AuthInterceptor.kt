@@ -14,8 +14,11 @@ class AuthInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val builder = original.newBuilder()
-            .header("Accept", "application/json")
             .header("User-Agent", "PingDuluFieldOps-Android/1.0")
+
+        if (original.header("Accept").isNullOrBlank()) {
+            builder.header("Accept", "application/json")
+        }
 
         val token = tokenProvider.getToken()?.trim()
         if (!token.isNullOrEmpty() && original.header("Authorization").isNullOrBlank()) {

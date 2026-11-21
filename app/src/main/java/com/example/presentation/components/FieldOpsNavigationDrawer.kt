@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Cable
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudUpload
@@ -93,11 +94,7 @@ fun FieldOpsDrawerSheet(
     val p1Count = uiState.allTasks.count {
         it.priority == Priority.P1_CRITICAL && it.stage != Stage.DONE
     }
-    val heroDuration = if (uiState.activeHeroTask != null) {
-        DateEpochUtil.formatStopwatch(uiState.liveHeroSeconds)
-    } else {
-        "00:00:00"
-    }
+    val doneCount = uiState.allTasks.count { it.stage == Stage.DONE }
 
     ModalDrawerSheet(
         modifier = modifier
@@ -120,7 +117,7 @@ fun FieldOpsDrawerSheet(
                 shiftStatus = uiState.shiftStatus,
                 activeCount = activeCount,
                 p1Count = p1Count,
-                heroDuration = heroDuration,
+                doneCount = doneCount,
                 onSelectShiftStatus = onSelectShiftStatus
             )
 
@@ -189,7 +186,7 @@ private fun DrawerProfileShiftHeader(
     shiftStatus: ShiftStatus,
     activeCount: Int,
     p1Count: Int,
-    heroDuration: String,
+    doneCount: Int,
     onSelectShiftStatus: (ShiftStatus) -> Unit
 ) {
     val initial = technicianName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "F"
@@ -317,10 +314,9 @@ private fun DrawerProfileShiftHeader(
                         valueColor = if (p1Count > 0) P2Amber else StopwatchMint
                     )
                     DrawerKpiItem(
-                        label = "Durasi Hero",
-                        value = heroDuration,
-                        valueColor = StopwatchMint,
-                        isMono = true
+                        label = "Selesai",
+                        value = "$doneCount",
+                        valueColor = StopwatchMint
                     )
                 }
             }
@@ -596,6 +592,14 @@ private fun DrawerToolkitSection(
             subtitle = "Hitung Network ID, Mask & Range Host IPv4",
             onClick = { onOpenToolkit(FieldToolkitTab.SUBNET) },
             testTag = "drawer_tool_subnet"
+        )
+
+        DrawerToolRow(
+            icon = Icons.Rounded.Cable,
+            title = "Panduan RJ45 & PoE",
+            subtitle = "Pinout T568A/B, Crossover, Console & Budget PoE",
+            onClick = { onOpenToolkit(FieldToolkitTab.RJ45_POE) },
+            testTag = "drawer_tool_rj45_poe"
         )
     }
 }

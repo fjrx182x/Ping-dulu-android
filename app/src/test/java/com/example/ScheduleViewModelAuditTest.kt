@@ -102,7 +102,7 @@ class ScheduleViewModelAuditTest {
     }
 
     @Test
-    fun viewModel_liveStopwatchTicksEverySecondAndFlushesOnPauseWithoutLosingSeconds() = runTest(testDispatcher) {
+    fun viewModel_patch2RemovesLiveStopwatchTickerAndWorkTaskMovesBacklogToInProgress() = runTest(testDispatcher) {
         val repo = FakeTaskRepository(
             SeedTaskData.createInitialTasks(baseEpochDay = baseEpochDay).map { it.toDomain() }
         )
@@ -118,37 +118,15 @@ class ScheduleViewModelAuditTest {
         runCurrent()
 
         val initialSeconds = vm.uiState.value.liveHeroSeconds
-        assertEquals(2712L, initialSeconds)
-
-        // Advance 4 seconds
-        advanceTimeBy(4_001L)
+        // Advance 5 seconds -> Patch Ke-2 removed 1Hz stopwatch ticker, so value must stay constant
+        advanceTimeBy(5_001L)
         runCurrent()
-        assertEquals(2716L, vm.uiState.value.liveHeroSeconds)
+        assertEquals(initialSeconds, vm.uiState.value.liveHeroSeconds)
 
-        // Pause timer -> must persist 2716s before pausing (zero lost seconds!)
-        vm.toggleTaskTimer(59L)
+        // Calling workTask on BACKLOG task 60 moves it to IN_PROGRESS
+        vm.workTask(60L)
         runCurrent()
-
-        assertFalse(vm.uiState.value.activeHeroTask!!.isTimerRunning)
-        assertEquals(2716L, repo.getTaskSnapshot(59L)!!.trackedSeconds)
-
-        // Advance another 5 seconds while paused -> must NOT tick!
-        advanceTimeBy(5_000L)
-        runCurrent()
-        assertEquals(2716L, vm.uiState.value.liveHeroSeconds)
-
-        // Resume task 59, tick 3 more seconds (2719s), then start timer on task 60 directly
-        vm.toggleTaskTimer(59L)
-        runCurrent()
-        advanceTimeBy(3_001L)
-        runCurrent()
-        assertEquals(2719L, vm.uiState.value.liveHeroSeconds)
-
-        vm.toggleTaskTimer(60L)
-        runCurrent()
-        assertFalse(repo.getTaskSnapshot(59L)!!.isTimerRunning)
-        assertEquals(2719L, repo.getTaskSnapshot(59L)!!.trackedSeconds)
-        assertTrue(repo.getTaskSnapshot(60L)!!.isTimerRunning)
+        assertEquals(Stage.IN_PROGRESS, repo.getTaskSnapshot(60L)!!.stage)
 
         vm.stopBackgroundJobs()
         collector.cancel()
@@ -298,8 +276,8 @@ class ScheduleViewModelAuditTest {
         assertTrue(initialState.notifications.isNotEmpty())
         assertEquals(initialState.notifications.size, initialState.unreadNotificationCount)
 
-        // Contains active running stopwatch alert, P1 critical alert, and today's backlog alert
-        assertTrue(initialState.notifications.any { it.id == "timer_running_59" })
+        // Patch Ke-2 removed stopwatch alerts; P1 critical alert and today's backlog alert remain active
+        assertTrue(initialState.notifications.none { it.id == "timer_running_59" })
         assertTrue(initialState.notifications.any { it.category == NotificationCategory.CRITICAL && it.taskId == 59L })
         assertTrue(initialState.notifications.any { it.id == "today_backlog_60" })
 
@@ -492,6 +470,16 @@ private class FakeTaskRepository(
         }
     }
 
+    override suspend fun workTask(taskId: Long): Result<String> {
+        updateTaskStage(taskId, Stage.IN_PROGRESS)
+        return Result.success("Tiket sedang dikerjakan.")
+    }
+
+    override suspend fun completeTaskWithPolicy(taskId: Long): Result<Unit> {
+        markTaskCompleted(taskId)
+        return Result.success(Unit)
+    }
+
     override suspend fun createQuickTask(
         title: String,
         category: TicketCategory,
@@ -500,7 +488,12 @@ private class FakeTaskRepository(
         location: String,
         scheduledTimeMinutes: Int?,
         technicalNotes: String,
-        labels: List<String>
+        labels: List<String>,
+        assigneeIds: List<Long>,
+        labelIds: List<Long>,
+        checklistSteps: List<String>,
+        isRecurring: Boolean,
+        recurrenceInterval: String?
     ): Task {
         val created = Task(
             id = -(tasksFlow.value.size + 100L),

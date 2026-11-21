@@ -113,9 +113,17 @@ class PlannedWorkDataLayerAuditTest {
             sqlite.version = 2
         }
 
-        // 2. Open via Room v3 with MIGRATION_2_3 (strict Room schema validation runs automatically!)
+        // 2. Open via current Room schema (v2 -> v3 -> v4 -> v5 -> v6 -> v7) with strict Room schema validation
         val migratedDb = Room.databaseBuilder(app, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .addMigrations(
+                AppDatabase.MIGRATION_1_2,
+                AppDatabase.MIGRATION_2_3,
+                AppDatabase.MIGRATION_3_4,
+                AppDatabase.MIGRATION_4_5,
+                AppDatabase.MIGRATION_5_6,
+                AppDatabase.MIGRATION_6_7,
+                AppDatabase.MIGRATION_7_8
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -353,7 +361,12 @@ private class PlannedWorkFakeRepo(initial: List<Task>) : TaskRepository {
         location: String,
         scheduledTimeMinutes: Int?,
         technicalNotes: String,
-        labels: List<String>
+        labels: List<String>,
+        assigneeIds: List<Long>,
+        labelIds: List<Long>,
+        checklistSteps: List<String>,
+        isRecurring: Boolean,
+        recurrenceInterval: String?
     ): Task {
         val nextId = -(seq++)
         val created = Task(

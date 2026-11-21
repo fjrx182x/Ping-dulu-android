@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Cable
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -82,8 +83,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 enum class FieldToolkitTab(val label: String) {
-    PING("Ping & Latency"),
-    SUBNET("Subnet / CIDR")
+    PING("Ping"),
+    SUBNET("Subnet"),
+    RJ45_POE("RJ45 & PoE")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,10 +131,10 @@ fun FieldToolkitBottomSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (selectedTab == FieldToolkitTab.PING) {
-                                Icons.Rounded.NetworkCheck
-                            } else {
-                                Icons.Rounded.Lan
+                            imageVector = when (selectedTab) {
+                                FieldToolkitTab.PING -> Icons.Rounded.NetworkCheck
+                                FieldToolkitTab.SUBNET -> Icons.Rounded.Lan
+                                FieldToolkitTab.RJ45_POE -> Icons.Rounded.Cable
                             },
                             contentDescription = null,
                             tint = Color.White,
@@ -178,40 +180,46 @@ fun FieldToolkitBottomSheet(
                 ) {
                     FieldToolkitTab.entries.forEach { tab ->
                         val active = selectedTab == tab
+                        val tabTag = when (tab) {
+                            FieldToolkitTab.PING -> "toolkit_tab_ping"
+                            FieldToolkitTab.SUBNET -> "toolkit_tab_subnet"
+                            FieldToolkitTab.RJ45_POE -> "toolkit_tab_rj45_poe"
+                        }
+                        val tabIcon = when (tab) {
+                            FieldToolkitTab.PING -> Icons.Rounded.NetworkCheck
+                            FieldToolkitTab.SUBNET -> Icons.Rounded.Lan
+                            FieldToolkitTab.RJ45_POE -> Icons.Rounded.Cable
+                        }
                         Surface(
                             onClick = { selectedTab = tab },
                             modifier = Modifier
                                 .weight(1f)
                                 .defaultMinSize(minHeight = 44.dp)
-                                .testTag(
-                                    if (tab == FieldToolkitTab.PING) "toolkit_tab_ping" else "toolkit_tab_subnet"
-                                ),
+                                .testTag(tabTag),
                             shape = RoundedCornerShape(11.dp),
                             color = if (active) PingDuluNavy else Color.Transparent
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    .padding(horizontal = 6.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = if (tab == FieldToolkitTab.PING) {
-                                        Icons.Rounded.NetworkCheck
-                                    } else {
-                                        Icons.Rounded.Lan
-                                    },
+                                    imageVector = tabIcon,
                                     contentDescription = null,
                                     tint = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.size(6.dp))
+                                Spacer(modifier = Modifier.size(4.dp))
                                 Text(
                                     text = tab.label,
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
                                     color = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -222,6 +230,7 @@ fun FieldToolkitBottomSheet(
             when (selectedTab) {
                 FieldToolkitTab.PING -> PingProbeSection(serverHostHint = serverHostHint)
                 FieldToolkitTab.SUBNET -> SubnetCalculatorSection()
+                FieldToolkitTab.RJ45_POE -> Rj45PoeReferenceSection()
             }
 
             Spacer(modifier = Modifier.height(12.dp))

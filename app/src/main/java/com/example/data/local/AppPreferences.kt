@@ -75,8 +75,8 @@ class AppPreferences(context: Context) : TokenProvider {
             authToken = token,
             serverBaseUrl = NetworkModule.DEFAULT_BASE_URL,
             userId = userId,
-            technicianName = prefs[KEY_TECH_NAME] ?: "Fajar",
-            technicianRole = prefs[KEY_TECH_ROLE] ?: "admin",
+            technicianName = prefs[KEY_TECH_NAME] ?: if (token.isBlank()) "" else "Teknisi",
+            technicianRole = prefs[KEY_TECH_ROLE] ?: if (token.isBlank()) "" else "technician",
             themePreference = themePref,
             shiftStatus = shiftStatus,
             lastSyncedAtMillis = prefs[KEY_LAST_SYNCED_MILLIS] ?: 0L
@@ -119,6 +119,9 @@ class AppPreferences(context: Context) : TokenProvider {
         dataStore.edit { prefs ->
             prefs.remove(KEY_AUTH_TOKEN)
             prefs.remove(KEY_USER_ID)
+            prefs.remove(KEY_TECH_NAME)
+            prefs.remove(KEY_TECH_ROLE)
+            prefs.remove(KEY_LAST_SYNCED_MILLIS)
         }
     }
 

@@ -20,7 +20,8 @@ enum class Stage(
     companion object {
         fun fromString(raw: String?): Stage {
             return when (raw?.trim()?.uppercase()) {
-                "IN_PROGRESS", "INPROGRESS", "PROGRESS", "PROSES" -> IN_PROGRESS
+                "IN_PROGRESS", "INPROGRESS", "PROGRESS", "PROSES",
+                "WAITING_USER", "WAITING", "PENDING_USER", "ON_HOLD" -> IN_PROGRESS
                 "DONE", "COMPLETED", "SELESAI" -> DONE
                 else -> BACKLOG
             }

@@ -17,14 +17,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,12 +54,13 @@ import com.example.ui.theme.StopwatchMint
 fun SpkHistoryScreen(
     uiState: ScheduleUiState,
     onTaskClicked: (Long) -> Unit,
+    onBackClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val completedTasks = uiState.allTasks
         .filter { it.stage == Stage.DONE }
         .sortedByDescending { it.updatedAtMillis }
-    val totalTrackedSeconds = completedTasks.sumOf { it.trackedSeconds }
+    val syncedCompletedCount = completedTasks.count { it.isSynced }
     val totalChecksDone = completedTasks.sumOf { it.completedChecklistCount }
     val totalChecksAll = completedTasks.sumOf { it.totalChecklistCount }
 
@@ -73,23 +75,41 @@ fun SpkHistoryScreen(
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 1.dp
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .padding(horizontal = if (onBackClick != null) 8.dp else 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = "Riwayat SPK & Laporan",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Rekap Surat Perintah Kerja selesai & durasi aktual teknisi",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (onBackClick != null) {
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.testTag("spk_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Kembali ke Pengaturan",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "Riwayat SPK & Laporan",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Rekap Surat Perintah Kerja selesai & progres checklist teknisi",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -133,8 +153,8 @@ fun SpkHistoryScreen(
                                 valueColor = Color.White
                             )
                             SpkMetricColumn(
-                                label = "Total Durasi",
-                                value = DateEpochUtil.formatStopwatch(totalTrackedSeconds),
+                                label = "Tersinkron",
+                                value = "$syncedCompletedCount/${completedTasks.size}",
                                 valueColor = StopwatchMint,
                                 mono = true
                             )
@@ -344,21 +364,15 @@ private fun SpkCompletedCard(
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Timer,
+                        imageVector = Icons.Rounded.CheckCircle,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = extendedColors.pillDone,
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = DateEpochUtil.formatStopwatch(task.trackedSeconds),
-                        fontFamily = JetBrainsMonoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "· Checklist ${task.completedChecklistCount}/${task.totalChecklistCount}",
+                        text = "Checklist ${task.completedChecklistCount}/${task.totalChecklistCount} selesai",
                         style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

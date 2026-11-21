@@ -49,6 +49,22 @@ data class CreateTaskRequestDto(
     val technicalNotes: String,
     @Json(name = "sla_target_time")
     val slaTargetTime: String? = null,
+    @Json(name = "assigned_to_id")
+    val assignedToId: Long? = null,
+    @Json(name = "assignee_ids")
+    val assigneeIds: List<Long>? = null,
     @Json(name = "labels")
-    val labels: List<String>? = null
+    val labels: List<String>? = null,
+    @Json(name = "label_ids")
+    val labelIds: List<Long>? = null,
+    @Json(name = "checklist")
+    val checklist: List<String>? = null,
+    @Json(name = "is_recurring")
+    val isRecurring: Int = 0,
+    @Json(name = "recurrence_interval")
+    val recurrenceInterval: String? = null,
+    @Json(name = "created_at")
+    val createdAt: Long? = null,
+    @Json(name = "client_sync_id")
+    val clientSyncId: String? = null
 )

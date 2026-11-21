@@ -12,7 +12,11 @@ import com.example.domain.repository.SyncResult
 import com.example.domain.repository.TaskRepository
 import com.example.domain.tools.FieldNetworkTools
 import com.example.domain.tools.NetworkProbeTransport
+import com.example.domain.tools.PoeBudgetStatus
 import com.example.domain.tools.ProbeStatus
+import com.example.domain.tools.Rj45PoeReference
+import com.example.domain.tools.Rj45WiringMode
+import com.example.domain.tools.WireColorCode
 import com.example.presentation.schedule.ScheduleViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -103,6 +107,71 @@ class FieldToolsAndDrawerAuditTest {
         assertNull(FieldNetworkTools.calculateSubnet("", 24))
         assertNull(FieldNetworkTools.calculateSubnet("192.168.1.1", -1))
         assertNull(FieldNetworkTools.calculateSubnet("192.168.1.1", 33))
+    }
+
+    @Test
+    fun rj45PoeReference_providesValidPinoutsForAllModesAndComputesPoeBudgetAccurately() {
+        // 1. T568B standard 8-pin color order
+        val bPins = Rj45PoeReference.pinsForEndA(Rj45WiringMode.T568B)
+        assertEquals(8, bPins.size)
+        assertEquals(WireColorCode.WHITE_ORANGE, bPins[0].wireColor)
+        assertEquals(WireColorCode.ORANGE, bPins[1].wireColor)
+        assertEquals(WireColorCode.WHITE_GREEN, bPins[2].wireColor)
+        assertEquals(WireColorCode.BLUE, bPins[3].wireColor)
+        assertEquals(WireColorCode.WHITE_BLUE, bPins[4].wireColor)
+        assertEquals(WireColorCode.GREEN, bPins[5].wireColor)
+        assertEquals(WireColorCode.WHITE_BROWN, bPins[6].wireColor)
+        assertEquals(WireColorCode.BROWN, bPins[7].wireColor)
+
+        // 2. Crossover maps End A (T568A) <-> End B (T568B)
+        val crossA = Rj45PoeReference.pinsForEndA(Rj45WiringMode.CROSSOVER)
+        val crossB = Rj45PoeReference.pinsForEndB(Rj45WiringMode.CROSSOVER)
+        assertEquals(WireColorCode.WHITE_GREEN, crossA[0].wireColor)
+        assertEquals(WireColorCode.WHITE_ORANGE, crossB[0].wireColor)
+
+        // 3. Console Rollover reverses pin 1..8 completely (1 <-> 8)
+        val rollA = Rj45PoeReference.pinsForEndA(Rj45WiringMode.ROLLOVER)
+        val rollB = Rj45PoeReference.pinsForEndB(Rj45WiringMode.ROLLOVER)
+        assertEquals(rollA.first().wireColor, rollB.last().wireColor)
+        assertEquals(rollA.last().wireColor, rollB.first().wireColor)
+
+        // 4. PoE standards include IEEE 802.3af/at/bt and Passive PoE warning
+        assertTrue(Rj45PoeReference.poeStandards.any { it.standardCode == "IEEE 802.3af" })
+        assertTrue(Rj45PoeReference.poeStandards.any { it.standardCode == "IEEE 802.3at" })
+        assertTrue(Rj45PoeReference.poeStandards.any { it.standardCode == "IEEE 802.3bt" })
+        assertTrue(Rj45PoeReference.poeStandards.any { it.isPassiveWarning })
+
+        // 5. PoE Budget Calculator (SAFE <= 80%, CAUTION 81-100%, OVERLOAD > 100%)
+        val safe = Rj45PoeReference.calculatePoeBudget(
+            switchBudgetWatts = 120,
+            apCount = 2,      // 30W
+            cameraCount = 4,  // 48W
+            ptzCount = 0,
+            phoneCount = 0
+        ) // 78W / 120W = 65%
+        assertEquals(78.0, safe.totalDemandWatts, 0.01)
+        assertEquals(42.0, safe.remainingWatts, 0.01)
+        assertEquals(65, safe.utilizationPercent)
+        assertEquals(PoeBudgetStatus.SAFE, safe.status)
+
+        val caution = Rj45PoeReference.calculatePoeBudget(
+            switchBudgetWatts = 120,
+            apCount = 4,      // 60W
+            cameraCount = 4,  // 48W -> 108W = 90%
+            ptzCount = 0,
+            phoneCount = 0
+        )
+        assertEquals(PoeBudgetStatus.CAUTION, caution.status)
+
+        val overload = Rj45PoeReference.calculatePoeBudget(
+            switchBudgetWatts = 65,
+            apCount = 2,      // 30W
+            cameraCount = 2,  // 24W
+            ptzCount = 1,     // 25W -> 79W > 65W
+            phoneCount = 0
+        )
+        assertEquals(PoeBudgetStatus.OVERLOAD, overload.status)
+        assertEquals(-14.0, overload.remainingWatts, 0.01)
     }
 
     @Test
@@ -383,7 +452,12 @@ private class DrawerAuditFakeRepository(initial: List<Task>) : TaskRepository {
         location: String,
         scheduledTimeMinutes: Int?,
         technicalNotes: String,
-        labels: List<String>
+        labels: List<String>,
+        assigneeIds: List<Long>,
+        labelIds: List<Long>,
+        checklistSteps: List<String>,
+        isRecurring: Boolean,
+        recurrenceInterval: String?
     ): Task = tasksFlow.value.first()
 
     override suspend fun login(username: String, password: String): Result<String> = Result.success("token")

@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AssignmentTurnedIn
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewKanban
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AssignmentTurnedIn
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.ViewKanban
@@ -66,11 +66,11 @@ enum class AppDestination(
         selectedIcon = Icons.Rounded.ViewKanban,
         unselectedIcon = Icons.Outlined.ViewKanban
     ),
-    SPK(
-        route = "spk",
-        label = "SPK",
-        selectedIcon = Icons.Rounded.AssignmentTurnedIn,
-        unselectedIcon = Icons.Outlined.AssignmentTurnedIn
+    CALENDAR(
+        route = "calendar",
+        label = "Kalender",
+        selectedIcon = Icons.Rounded.CalendarMonth,
+        unselectedIcon = Icons.Outlined.CalendarMonth
     ),
     SETTINGS(
         route = "settings",
@@ -127,9 +127,9 @@ fun PingDuluBottomNavigationBar(
                     Spacer(modifier = Modifier.weight(1f))
 
                     BottomNavTabItem(
-                        destination = AppDestination.SPK,
-                        selected = currentDestination == AppDestination.SPK,
-                        onClick = { onDestinationSelected(AppDestination.SPK) },
+                        destination = AppDestination.CALENDAR,
+                        selected = currentDestination == AppDestination.CALENDAR,
+                        onClick = { onDestinationSelected(AppDestination.CALENDAR) },
                         modifier = Modifier.weight(1f)
                     )
 

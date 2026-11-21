@@ -8,6 +8,8 @@ import com.example.data.remote.PingDuluApiService
 import com.example.data.remote.SseEventClient
 import com.example.data.repository.TaskRepositoryImpl
 import com.example.domain.repository.TaskRepository
+import com.example.util.AndroidNetworkConnectivityMonitor
+import com.example.util.ConnectivityMonitor
 import com.example.util.NotificationHelper
 import com.squareup.moshi.Moshi
 import okhttp3.OkHttpClient
@@ -20,6 +22,7 @@ class AppContainer private constructor(appContext: Context) {
 
     val appDatabase: AppDatabase = AppDatabase.getInstance(appContext)
     val appPreferences: AppPreferences = AppPreferences(appContext)
+    val connectivityMonitor: ConnectivityMonitor = AndroidNetworkConnectivityMonitor(appContext)
     val notificationHelper: NotificationHelper = NotificationHelper(appContext).apply {
         ensureChannelCreated()
     }

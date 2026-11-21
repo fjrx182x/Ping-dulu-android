@@ -12,6 +12,7 @@ import com.example.data.remote.dto.AssigneeDto
 import com.example.data.remote.dto.ChecklistItemDto
 import com.example.data.remote.dto.ChecklistStepToggleDto
 import com.example.data.remote.dto.CreateTaskRequestDto
+import com.example.data.remote.dto.CreateTaskResponseDto
 import com.example.data.remote.dto.LoginRequestDto
 import com.example.data.remote.dto.LoginResponseDto
 import com.example.data.remote.dto.StageUpdateDto
@@ -524,9 +525,18 @@ private class RecordingPingDuluApiService(
         return loginHandler(body)
     }
 
+    override suspend fun getUsersRaw(): Response<okhttp3.ResponseBody> =
+        Response.success("[]".toResponseBody())
+
+    override suspend fun getLabelsRaw(): Response<okhttp3.ResponseBody> =
+        Response.success("[]".toResponseBody())
+
     override suspend fun getTasks(): Response<TaskResponseDto> = tasksResponse
 
-    override suspend fun createTask(body: CreateTaskRequestDto): Response<TaskDto> =
+    override suspend fun getTaskDetailRaw(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.error(404, "not found".toResponseBody())
+
+    override suspend fun createTask(body: CreateTaskRequestDto): Response<CreateTaskResponseDto> =
         Response.error(500, "not stubbed".toResponseBody())
 
     override suspend fun updateStage(id: Long, body: StageUpdateDto): Response<Unit> {
@@ -550,12 +560,60 @@ private class RecordingPingDuluApiService(
         capturedChecklistCalls += Triple(id, stepId, body)
         return Response.success(Unit)
     }
+
+    override suspend fun patchTask(
+        id: Long,
+        body: com.example.data.remote.dto.TaskPatchRequestDto
+    ): Response<okhttp3.ResponseBody> = Response.success("{}".toResponseBody())
+
+    override suspend fun getAttachmentsRaw(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.success("[]".toResponseBody())
+
+    override suspend fun uploadAttachment(
+        taskId: Long,
+        file: okhttp3.MultipartBody.Part
+    ): Response<okhttp3.ResponseBody> = Response.success("{}".toResponseBody())
+
+    override suspend fun getCommentsRaw(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.success("[]".toResponseBody())
+
+    override suspend fun postComment(
+        taskId: Long,
+        body: com.example.data.remote.dto.AddCommentRequestDto
+    ): Response<okhttp3.ResponseBody> = Response.success("{}".toResponseBody())
+
+    override suspend fun getActivitiesRaw(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.success("[]".toResponseBody())
+
+    override suspend fun getActivitySingularRaw(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.error(404, "{}".toResponseBody())
+
+    override suspend fun getTaskLogsRaw(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.error(404, "{}".toResponseBody())
+
+    override suspend fun workTask(taskId: Long): Response<com.example.data.remote.dto.WorkTaskResponseDto> =
+        Response.success(com.example.data.remote.dto.WorkTaskResponseDto(success = true, stage = "IN_PROGRESS"))
+
+    override suspend fun claimTask(taskId: Long): Response<com.example.data.remote.dto.ClaimTaskResponseDto> =
+        Response.success(com.example.data.remote.dto.ClaimTaskResponseDto(success = true))
+
+    override suspend fun deleteTask(taskId: Long): Response<okhttp3.ResponseBody> =
+        Response.success("{}".toResponseBody())
+
+    override suspend fun getHolidays(year: Int): Response<com.example.data.remote.dto.HolidayResponseDto> =
+        Response.success(com.example.data.remote.dto.HolidayResponseDto(year = year))
+
+    override suspend fun getCalendar(year: Int, month: Int): Response<com.example.data.remote.dto.CalendarAgendaResponseDto> =
+        Response.success(com.example.data.remote.dto.CalendarAgendaResponseDto(year = year, month = month))
 }
 
 private class FailingPingDuluApiService : PingDuluApiService {
     override suspend fun login(body: LoginRequestDto): Response<LoginResponseDto> = throw IOException("Offline")
+    override suspend fun getUsersRaw(): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun getLabelsRaw(): Response<okhttp3.ResponseBody> = throw IOException("Offline")
     override suspend fun getTasks(): Response<TaskResponseDto> = throw IOException("Offline")
-    override suspend fun createTask(body: CreateTaskRequestDto): Response<TaskDto> = throw IOException("Offline")
+    override suspend fun getTaskDetailRaw(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun createTask(body: CreateTaskRequestDto): Response<CreateTaskResponseDto> = throw IOException("Offline")
     override suspend fun updateStage(id: Long, body: StageUpdateDto): Response<Unit> = throw IOException("Offline")
     override suspend fun updateTimer(id: Long, body: TimerActionRequestDto): Response<Unit> = throw IOException("Offline")
     override suspend fun toggleChecklistStep(
@@ -563,6 +621,34 @@ private class FailingPingDuluApiService : PingDuluApiService {
         stepId: Long,
         body: ChecklistStepToggleDto
     ): Response<Unit> = throw IOException("Offline")
+
+    override suspend fun patchTask(
+        id: Long,
+        body: com.example.data.remote.dto.TaskPatchRequestDto
+    ): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+
+    override suspend fun getAttachmentsRaw(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+
+    override suspend fun uploadAttachment(
+        taskId: Long,
+        file: okhttp3.MultipartBody.Part
+    ): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+
+    override suspend fun getCommentsRaw(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+
+    override suspend fun postComment(
+        taskId: Long,
+        body: com.example.data.remote.dto.AddCommentRequestDto
+    ): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+
+    override suspend fun getActivitiesRaw(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun getActivitySingularRaw(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun getTaskLogsRaw(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun workTask(taskId: Long): Response<com.example.data.remote.dto.WorkTaskResponseDto> = throw IOException("Offline")
+    override suspend fun claimTask(taskId: Long): Response<com.example.data.remote.dto.ClaimTaskResponseDto> = throw IOException("Offline")
+    override suspend fun deleteTask(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun getHolidays(year: Int): Response<com.example.data.remote.dto.HolidayResponseDto> = throw IOException("Offline")
+    override suspend fun getCalendar(year: Int, month: Int): Response<com.example.data.remote.dto.CalendarAgendaResponseDto> = throw IOException("Offline")
 }
 
 private class InMemoryTaskDao(initial: List<TaskEntity>) : TaskDao {
@@ -676,8 +762,18 @@ private class InMemoryTaskDao(initial: List<TaskEntity>) : TaskDao {
         state.value = state.value + (taskId to existing.copy(isSynced = true))
     }
 
+    override suspend fun getTaskByClientSyncId(clientSyncId: String): TaskEntity? {
+        return state.value.values.firstOrNull { it.clientSyncId == clientSyncId }
+    }
+
     override suspend fun deleteTaskById(taskId: Long) {
         state.value = state.value - taskId
+    }
+
+    override suspend fun deletePendingByClientSyncId(clientSyncId: String) {
+        state.value = state.value.filterValues { entity ->
+            !(entity.id < 0L && entity.clientSyncId == clientSyncId)
+        }
     }
 
     override suspend fun deleteStaleSyncedTasks(activeIds: List<Long>) {

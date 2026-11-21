@@ -332,20 +332,12 @@ private fun ScheduleTopAppBar(
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(PingDuluNavy),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "PD",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
+                    com.example.presentation.components.PingDuluLogoMark(
+                        size = 36.dp,
+                        cornerRadius = 10.dp,
+                        contentDescription = "PingDulu Logo",
+                        modifier = Modifier.testTag("topbar_pingdulu_logo")
+                    )
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

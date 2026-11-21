@@ -21,7 +21,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AssignmentTurnedIn
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Lock
@@ -61,6 +63,7 @@ import com.example.ui.theme.PingDuluNavy
 import com.example.ui.theme.StopwatchMint
 import com.example.ui.theme.SyncGreenDark
 import com.example.ui.theme.SyncGreenLight
+import com.example.domain.model.Stage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -71,8 +74,12 @@ fun SettingsSyncScreen(
     onTriggerSync: () -> Unit,
     onLogout: () -> Unit,
     onToggleTheme: () -> Unit,
+    onOpenSpkHistory: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val completedSpkCount = remember(uiState.allTasks) {
+        uiState.allTasks.count { it.stage == Stage.DONE }
+    }
     val fixedServerDisplayUrl = remember {
         PingDuluApiService.FIXED_BASE_URL.removeSuffix("/")
     }
@@ -80,8 +87,9 @@ fun SettingsSyncScreen(
         if (uiState.lastSyncedAtMillis <= 0L) {
             "Belum tersinkron"
         } else {
-            SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.forLanguageTag("id-ID"))
-                .format(Date(uiState.lastSyncedAtMillis))
+            SimpleDateFormat("dd MMM yyyy, HH:mm 'WIB'", Locale.forLanguageTag("id-ID")).apply {
+                timeZone = com.example.domain.model.DateEpochUtil.JAKARTA_TIME_ZONE
+            }.format(Date(uiState.lastSyncedAtMillis))
         }
     }
     val sseDisplayLabel = when (uiState.sseState) {
@@ -291,6 +299,85 @@ fun SettingsSyncScreen(
                     }
                 }
 
+                // 1B. Riwayat SPK & Laporan Menu Card (moved from Bottom Bar into Settings)
+                item(key = "spk_history_menu_card") {
+                    Surface(
+                        onClick = onOpenSpkHistory,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_open_spk_button"),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(AvatarEmerald.copy(alpha = 0.14f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AssignmentTurnedIn,
+                                        contentDescription = "Riwayat SPK & Laporan",
+                                        tint = AvatarEmerald,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Riwayat SPK & Laporan",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = AvatarEmerald.copy(alpha = 0.14f)
+                                        ) {
+                                            Text(
+                                                text = "$completedSpkCount SPK",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = AvatarEmerald,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "Rekap Surat Perintah Kerja selesai & status sinkronisasi",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                contentDescription = "Buka Riwayat SPK",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 // 2. Offline Sync Status Card
                 item(key = "sync_status_card") {
                     Surface(
@@ -321,6 +408,15 @@ fun SettingsSyncScreen(
 
                             StatusRow("Status Koneksi", uiState.syncStatusBadge.label)
                             StatusRow("Status SSE Stream", sseDisplayLabel)
+                            StatusRow(
+                                label = "Auto-Sync Real-Time",
+                                value = if (uiState.isNetworkOnline) "Aktif (Otomatis)" else "Menunggu Sinyal",
+                                valueColor = if (uiState.isNetworkOnline) {
+                                    if (uiState.isDarkTheme) SyncGreenDark else SyncGreenLight
+                                } else {
+                                    if (uiState.isDarkTheme) P2AmberTextDark else P2AmberTextLight
+                                }
+                            )
                             StatusRow("Sinkronisasi Terakhir", lastSyncedLabel)
                             StatusRow("Total Tiket Lokal (Room)", "${uiState.allTasks.size} tiket")
                             StatusRow(
@@ -332,6 +428,35 @@ fun SettingsSyncScreen(
                                     if (uiState.isDarkTheme) SyncGreenDark else SyncGreenLight
                                 }
                             )
+
+                            if (!uiState.lastSyncError.isNullOrBlank()) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("settings_last_sync_error_banner"),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = P1Crimson.copy(alpha = 0.10f),
+                                    border = BorderStroke(1.dp, P1Crimson.copy(alpha = 0.35f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.WarningAmber,
+                                            contentDescription = "Diagnosa error sinkronisasi",
+                                            tint = P1Crimson,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Detail sync terakhir: ${uiState.lastSyncError}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = P1Crimson
+                                        )
+                                    }
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(2.dp))
 

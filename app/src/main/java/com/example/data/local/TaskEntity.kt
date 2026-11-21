@@ -9,6 +9,7 @@ import com.example.domain.model.ChecklistItem
 import com.example.domain.model.Priority
 import com.example.domain.model.Stage
 import com.example.domain.model.Task
+import com.example.domain.model.TaskAttachment
 import com.example.domain.model.TicketCategory
 
 @Entity(
@@ -16,7 +17,8 @@ import com.example.domain.model.TicketCategory
     indices = [
         Index(value = ["scheduled_date_epoch_day"]),
         Index(value = ["stage"]),
-        Index(value = ["is_synced"])
+        Index(value = ["is_synced"]),
+        Index(value = ["client_sync_id"])
     ]
 )
 data class TaskEntity(
@@ -88,7 +90,40 @@ data class TaskEntity(
     val labels: List<String> = emptyList(),
 
     @ColumnInfo(name = "updated_at_millis")
-    val updatedAtMillis: Long
+    val updatedAtMillis: Long,
+
+    @ColumnInfo(name = "client_sync_id")
+    val clientSyncId: String? = null,
+
+    @ColumnInfo(name = "is_recurring", defaultValue = "0")
+    val isRecurring: Boolean = false,
+
+    @ColumnInfo(name = "recurrence_interval")
+    val recurrenceInterval: String? = null,
+
+    @ColumnInfo(name = "is_blocked", defaultValue = "0")
+    val isBlocked: Boolean = false,
+
+    @ColumnInfo(name = "blocked_reason")
+    val blockedReason: String? = null,
+
+    @ColumnInfo(name = "snoozed_until_millis")
+    val snoozedUntilMillis: Long? = null,
+
+    @ColumnInfo(name = "attachments_json", defaultValue = "'[]'")
+    val attachments: List<TaskAttachment> = emptyList(),
+
+    @ColumnInfo(name = "created_by_id")
+    val createdById: Long? = null,
+
+    @ColumnInfo(name = "created_by_name")
+    val createdByName: String? = null,
+
+    @ColumnInfo(name = "creator_client")
+    val creatorClient: String? = null,
+
+    @ColumnInfo(name = "creator_role")
+    val creatorRole: String? = null
 )
 
 fun TaskEntity.toDomain(): Task {
@@ -115,7 +150,18 @@ fun TaskEntity.toDomain(): Task {
         dueDateMillis = dueDateMillis,
         assignedToId = assignedToId,
         labels = labels,
-        updatedAtMillis = updatedAtMillis
+        updatedAtMillis = updatedAtMillis,
+        clientSyncId = clientSyncId,
+        isRecurring = isRecurring,
+        recurrenceInterval = recurrenceInterval,
+        isBlocked = isBlocked,
+        blockedReason = blockedReason,
+        snoozedUntilMillis = snoozedUntilMillis,
+        attachments = attachments,
+        createdById = createdById,
+        createdByName = createdByName,
+        creatorClient = creatorClient,
+        creatorRole = creatorRole
     )
 }
 
@@ -143,6 +189,17 @@ fun Task.toEntity(): TaskEntity {
         dueDateMillis = dueDateMillis,
         assignedToId = assignedToId,
         labels = labels,
-        updatedAtMillis = updatedAtMillis
+        updatedAtMillis = updatedAtMillis,
+        clientSyncId = clientSyncId,
+        isRecurring = isRecurring,
+        recurrenceInterval = recurrenceInterval,
+        isBlocked = isBlocked,
+        blockedReason = blockedReason,
+        snoozedUntilMillis = snoozedUntilMillis,
+        attachments = attachments,
+        createdById = createdById,
+        createdByName = createdByName,
+        creatorClient = creatorClient,
+        creatorRole = creatorRole
     )
 }

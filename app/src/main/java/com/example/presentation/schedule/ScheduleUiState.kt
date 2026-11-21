@@ -5,6 +5,10 @@ import com.example.data.local.ShiftStatus
 import com.example.data.remote.NetworkModule
 import com.example.data.remote.SseConnectionState
 import com.example.domain.model.DateEpochUtil
+import com.example.domain.model.FieldTechnician
+import com.example.domain.model.NationalHoliday
+import com.example.domain.model.OfficialDefaultLabels
+import com.example.domain.model.OfficialLabel
 import com.example.domain.model.Task
 import com.example.domain.model.TicketCategory
 
@@ -44,7 +48,9 @@ data class DayHorizonModel(
     val fullDateLabel: String,
     val isToday: Boolean,
     val taskCount: Int,
-    val indicatorType: DayIndicatorType
+    val indicatorType: DayIndicatorType,
+    val isHoliday: Boolean = false,
+    val holidayName: String? = null
 )
 
 enum class NotificationCategory(val label: String) {
@@ -110,6 +116,8 @@ data class ScheduleUiState(
     val unsyncedCount: Int = 0,
     val syncStatusBadge: SyncStatusBadge = SyncStatusBadge.SYNCED_LOCAL,
     val syncMessage: String? = null,
+    val lastSyncError: String? = null,
+    val isNetworkOnline: Boolean = true,
     val loginErrorMessage: String? = null,
     val sseState: SseConnectionState = SseConnectionState.OFFLINE,
     val serverBaseUrl: String = NetworkModule.DEFAULT_BASE_URL,
@@ -119,7 +127,14 @@ data class ScheduleUiState(
     val lastSyncedAtMillis: Long = 0L,
     val notifications: List<FieldNotificationItem> = emptyList(),
     val unreadNotificationCount: Int = 0,
-    val isLoggingIn: Boolean = false
+    val isLoggingIn: Boolean = false,
+    val availableTechnicians: List<FieldTechnician> = emptyList(),
+    val officialLabels: List<OfficialLabel> = OfficialDefaultLabels,
+    val holidaysByEpochDay: Map<Long, NationalHoliday> = emptyMap(),
+    val calendarYear: Int = DateEpochUtil.yearMonthFromEpochDay(DateEpochUtil.todayEpochDay()).first,
+    val calendarMonth: Int = DateEpochUtil.yearMonthFromEpochDay(DateEpochUtil.todayEpochDay()).second,
+    val calendarSelectedEpochDay: Long = DateEpochUtil.todayEpochDay(),
+    val isLoadingCalendar: Boolean = false
 ) {
     val isLoggedIn: Boolean
         get() = !authToken.isNullOrBlank()

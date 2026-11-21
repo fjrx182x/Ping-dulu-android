@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.model.DateEpochUtil
+import com.example.domain.model.Task
 import com.example.ui.theme.BadgeColors
 import com.example.ui.theme.LeadStarAmber
 import com.example.ui.theme.P1Crimson
@@ -269,6 +274,93 @@ fun TaskLabelFlowRow(
             TaskLabelChip(
                 label = label,
                 compact = compact
+            )
+        }
+    }
+}
+
+/**
+ * Distinct badge identifying Planned Work tickets (scheduled for a future date and/or specific clock time).
+ * Displays e.g. "Terjadwal · 10:00 WIB", "Terjadwal · 10:00", or "Terjadwal · 22 Nov".
+ */
+@Composable
+fun PlannedWorkBadge(
+    task: Task,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onDarkSurface: Boolean = false,
+    showDateWhenFuture: Boolean = false,
+    todayEpochDay: Long = DateEpochUtil.todayEpochDay()
+) {
+    if (!task.isPlannedWork(todayEpochDay)) return
+
+    val extendedColors = PingDuluTheme.extendedColors
+    val badgeColors = extendedColors.priorityP3
+    val containerColor = if (onDarkSurface) {
+        PillProgressSky.copy(alpha = 0.24f)
+    } else {
+        badgeColors.container
+    }
+    val borderColor = if (onDarkSurface) {
+        PillProgressSky.copy(alpha = 0.55f)
+    } else {
+        badgeColors.border
+    }
+    val contentColor = if (onDarkSurface) Color.White else badgeColors.content
+    val iconTint = if (onDarkSurface) StopwatchMint else badgeColors.content
+
+    val timePart = task.scheduledTimeMinutes?.let { minutes ->
+        if (compact) {
+            DateEpochUtil.formatScheduledClockCompact(minutes)
+        } else {
+            DateEpochUtil.formatScheduledClock(minutes)
+        }
+    }
+    val datePart = if (showDateWhenFuture && task.scheduledDateEpochDay > todayEpochDay) {
+        DateEpochUtil.formatShortDayMonth(task.scheduledDateEpochDay)
+    } else {
+        null
+    }
+
+    val badgeText = buildList {
+        add("Terjadwal")
+        if (datePart != null) add(datePart)
+        if (timePart != null) add(timePart)
+    }.joinToString(" · ")
+
+    Surface(
+        modifier = modifier
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Pekerjaan terencana $badgeText"
+            }
+            .testTag("planned_badge_${task.id}"),
+        shape = RoundedCornerShape(6.dp),
+        color = containerColor,
+        border = BorderStroke(width = 0.9.dp, color = borderColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = if (compact) 6.dp else 8.dp,
+                vertical = if (compact) 2.5.dp else 4.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.EventAvailable,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(if (compact) 11.dp else 13.dp)
+            )
+            Text(
+                text = badgeText,
+                fontSize = if (compact) 9.5.sp else 11.sp,
+                lineHeight = if (compact) 12.sp else 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false
             )
         }
     }

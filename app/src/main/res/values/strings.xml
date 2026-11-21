@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">PingDulu Field Ops</string>
+    <string name="btn_work_task">Kerjakan</string>
+    <string name="btn_complete_task">Selesai</string>
+    <string name="btn_claim_task">Ambil Task</string>
+    <string name="btn_delete_task">Hapus Tiket</string>
 </resources>

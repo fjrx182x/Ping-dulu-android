@@ -3,6 +3,8 @@ package com.example.presentation.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -105,6 +107,12 @@ fun TaskGridCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                // Planned Work Badge ("Terjadwal · 10:00") when scheduled for a clock time or future date
+                PlannedWorkBadge(
+                    task = task,
+                    compact = true
+                )
+
                 // Colored Label Badges (e.g., Wi-Fi, Jaringan, Urgent)
                 TaskLabelRow(
                     labels = task.resolvedLabels,
@@ -187,6 +195,7 @@ fun TaskGridCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TaskListCard(
     task: Task,
@@ -256,11 +265,20 @@ fun TaskListCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                TaskLabelRow(
-                    labels = task.resolvedLabels,
-                    maxVisible = 3,
-                    compact = true
-                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    PlannedWorkBadge(
+                        task = task,
+                        compact = false
+                    )
+                    TaskLabelRow(
+                        labels = task.resolvedLabels,
+                        maxVisible = if (task.isPlannedWork()) 2 else 3,
+                        compact = true
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
