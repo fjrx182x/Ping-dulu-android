@@ -204,25 +204,26 @@ fun TaskDetailBottomSheet(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.AccessTime,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "${task.timeSlotLabel} · SLA ${task.slaTargetTime}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Rounded.AccessTime,
+                            contentDescription = "Waktu lapor",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Waktu Lapor: ${DateEpochUtil.formatReportedTime(task.createdAtMillis)}",
+                            modifier = Modifier.testTag("sheet_reported_time_text"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
+
+                    TaskLabelFlowRow(
+                        labels = task.resolvedLabels,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
 
                 // Technical Notes

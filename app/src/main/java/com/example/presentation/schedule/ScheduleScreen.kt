@@ -35,7 +35,6 @@ import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.model.Stage
 import com.example.presentation.components.HeroActiveJobCard
 import com.example.presentation.components.Horizon7DayStrip
+import com.example.presentation.components.NotificationCenterSheet
 import com.example.presentation.components.StatusFilterPillRow
 import com.example.presentation.components.TaskGridCard
 import com.example.presentation.components.TaskListCard
@@ -83,12 +83,13 @@ fun ScheduleScreen(
     onOpenMaps: (String) -> Unit,
     onTriggerSync: () -> Unit,
     onToggleTheme: () -> Unit,
-    onDismissNotifications: () -> Unit,
+    onMarkNotificationRead: (String) -> Unit,
+    onMarkAllNotificationsRead: () -> Unit,
     onOpenDrawer: () -> Unit,
     onResetDrawerFilters: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showNotificationsDialog by remember { mutableStateOf(false) }
+    var showNotificationCenterSheet by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -101,8 +102,7 @@ fun ScheduleScreen(
             onMenuClick = onOpenDrawer,
             onToggleTheme = onToggleTheme,
             onNotificationClick = {
-                showNotificationsDialog = true
-                onDismissNotifications()
+                showNotificationCenterSheet = true
             },
             onTriggerSync = onTriggerSync
         )
@@ -251,24 +251,17 @@ fun ScheduleScreen(
         }
     }
 
-    if (showNotificationsDialog) {
-        val criticalCount = uiState.allTasks.count {
-            it.priority.shortCode == "P1" && it.stage != Stage.DONE
-        }
-        AlertDialog(
-            onDismissRequest = { showNotificationsDialog = false },
-            title = { Text("Notifikasi Operasional") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("• $criticalCount tiket prioritas P1 CRITICAL aktif pada jadwal 7 hari Anda.")
-                    Text("• Perubahan offline tersimpan lokal: ${uiState.unsyncedCount} tiket menunggu sinkronisasi.")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showNotificationsDialog = false }) {
-                    Text("Mengerti")
-                }
-            }
+    if (showNotificationCenterSheet) {
+        NotificationCenterSheet(
+            notifications = uiState.notifications,
+            unreadCount = uiState.unreadNotificationCount,
+            isSyncing = uiState.isSyncing,
+            isDarkTheme = uiState.isDarkTheme,
+            onDismiss = { showNotificationCenterSheet = false },
+            onMarkNotificationRead = onMarkNotificationRead,
+            onMarkAllRead = onMarkAllNotificationsRead,
+            onOpenTask = onTaskClicked,
+            onTriggerSync = onTriggerSync
         )
     }
 }
@@ -414,15 +407,21 @@ private fun ScheduleTopAppBar(
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .offset(x = (-6).dp, y = 6.dp)
-                                    .size(18.dp)
+                                    .offset(x = (-5).dp, y = 6.dp)
+                                    .widthIn(min = 18.dp)
+                                    .height(18.dp)
                                     .clip(CircleShape)
                                     .background(P1Crimson)
-                                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                                    .padding(horizontal = 4.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = uiState.unreadNotificationCount.coerceAtMost(9).toString(),
+                                    text = if (uiState.unreadNotificationCount > 9) {
+                                        "9+"
+                                    } else {
+                                        uiState.unreadNotificationCount.toString()
+                                    },
                                     color = Color.White,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold

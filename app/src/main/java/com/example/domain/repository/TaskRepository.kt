@@ -27,9 +27,11 @@ interface TaskRepository {
         priority: Priority,
         epochDay: Long,
         location: String,
-        scheduledTimeMinutes: Int = 960,
-        technicalNotes: String = ""
+        scheduledTimeMinutes: Int? = null,
+        technicalNotes: String = "",
+        labels: List<String> = emptyList()
     ): Task
 
-    suspend fun login(email: String, password: String): Result<String>
+    suspend fun login(username: String, password: String): Result<String>
+    suspend fun clearSyncedCacheOnLogout()
 }

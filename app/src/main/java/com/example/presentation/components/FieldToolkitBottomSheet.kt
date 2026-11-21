@@ -30,6 +30,8 @@ import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Router
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.tools.FieldNetworkTools
 import com.example.domain.tools.PingProbeResult
+import com.example.domain.tools.ProbeStatus
 import com.example.domain.tools.SubnetCalculationResult
 import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.P1Crimson
@@ -75,6 +78,7 @@ import com.example.ui.theme.P2Amber
 import com.example.ui.theme.PillDoneMint
 import com.example.ui.theme.PingDuluNavy
 import com.example.ui.theme.PingDuluTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 enum class FieldToolkitTab(val label: String) {
@@ -230,8 +234,7 @@ private fun PingProbeSection(serverHostHint: String) {
     val cleanedServerHost = remember(serverHostHint) {
         serverHostHint
             .trim()
-            .removePrefix("https://")
-            .removePrefix("http://")
+            .replaceFirst(Regex("^https?://", RegexOption.IGNORE_CASE), "")
             .substringBefore("/")
             .substringBefore(":")
             .ifBlank { "ping.fjrx.my.id" }
@@ -239,30 +242,39 @@ private fun PingProbeSection(serverHostHint: String) {
 
     var hostInput by rememberSaveable { mutableStateOf(cleanedServerHost) }
     var selectedPort by rememberSaveable { mutableIntStateOf(443) }
-    var isProbing by remember { mutableStateOf(false) }
+    var activeProbeJob by remember { mutableStateOf<Job?>(null) }
     var latestResult by remember { mutableStateOf<PingProbeResult?>(null) }
     val probeHistory = remember { mutableStateListOf<PingProbeResult>() }
     val coroutineScope = rememberCoroutineScope()
+    val isProbing = activeProbeJob?.isActive == true
 
     val hostPresets = remember(cleanedServerHost) {
         listOf(cleanedServerHost, "1.1.1.1", "8.8.8.8", "192.168.1.1").distinct()
     }
     val portPresets = remember { listOf(443, 80, 53, 22) }
 
-    fun executeProbe() {
-        if (isProbing) return
-        coroutineScope.launch {
-            isProbing = true
-            val result = FieldNetworkTools.probeHost(
-                rawHost = hostInput,
-                port = selectedPort
-            )
-            latestResult = result
-            probeHistory.add(0, result)
-            if (probeHistory.size > 5) {
-                probeHistory.removeAt(probeHistory.lastIndex)
+    fun executeOrCancelProbe() {
+        if (isProbing) {
+            activeProbeJob?.cancel()
+            activeProbeJob = null
+            return
+        }
+        activeProbeJob = coroutineScope.launch {
+            try {
+                val result = FieldNetworkTools.probeHost(
+                    rawHost = hostInput,
+                    port = selectedPort,
+                    attempts = 3,
+                    timeoutMs = 2_000
+                )
+                latestResult = result
+                probeHistory.add(0, result)
+                if (probeHistory.size > 5) {
+                    probeHistory.removeAt(probeHistory.lastIndex)
+                }
+            } finally {
+                activeProbeJob = null
             }
-            isProbing = false
         }
     }
 
@@ -278,12 +290,17 @@ private fun PingProbeSection(serverHostHint: String) {
                     contentDescription = null
                 )
             },
+            supportingText = {
+                Text("Metode: 3× TCP Handshake RTT (DNS diukur terpisah)")
+            },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Done
             ),
-            keyboardActions = KeyboardActions(onDone = { executeProbe() }),
+            keyboardActions = KeyboardActions(onDone = {
+                if (!isProbing && hostInput.isNotBlank()) executeOrCancelProbe()
+            }),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -363,28 +380,34 @@ private fun PingProbeSection(serverHostHint: String) {
             }
         }
 
-        // Action Button
+        // Action Button (Start / Cancel)
         Button(
-            onClick = { executeProbe() },
-            enabled = !isProbing && hostInput.isNotBlank(),
+            onClick = { executeOrCancelProbe() },
+            enabled = isProbing || hostInput.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp)
                 .testTag("ping_run_button"),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = PingDuluNavy,
+                containerColor = if (isProbing) P1Crimson else PingDuluNavy,
                 contentColor = Color.White
             )
         ) {
             if (isProbing) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                     color = Color.White
                 )
-                Spacer(modifier = Modifier.size(10.dp))
-                Text("Menguji Koneksi...", fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.size(8.dp))
+                Icon(
+                    imageVector = Icons.Rounded.Stop,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.size(4.dp))
+                Text("Menguji (3×) · Ketuk Batal", fontWeight = FontWeight.Bold)
             } else {
                 Icon(
                     imageVector = Icons.Rounded.PlayArrow,
@@ -392,7 +415,7 @@ private fun PingProbeSection(serverHostHint: String) {
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.size(6.dp))
-                Text("Uji Koneksi Sekarang", fontWeight = FontWeight.Bold)
+                Text("Uji TCP Latency (3×)", fontWeight = FontWeight.Bold)
             }
         }
 
@@ -410,6 +433,17 @@ private fun PingProbeSection(serverHostHint: String) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 probeHistory.drop(1).forEach { entry ->
+                    val dotColor = when (entry.status) {
+                        ProbeStatus.REACHABLE -> PillDoneMint
+                        ProbeStatus.PARTIAL_LOSS, ProbeStatus.PORT_CLOSED -> P2Amber
+                        else -> P1Crimson
+                    }
+                    val rightLabel = when (entry.status) {
+                        ProbeStatus.REACHABLE -> FieldNetworkTools.formatLatencyMs(entry.avgLatencyMs)
+                        ProbeStatus.PARTIAL_LOSS -> "${entry.successCount}/${entry.totalAttempts} · ${FieldNetworkTools.formatLatencyMs(entry.avgLatencyMs)}"
+                        ProbeStatus.PORT_CLOSED -> "RST (${FieldNetworkTools.formatLatencyMs(entry.avgLatencyMs)})"
+                        else -> entry.status.badgeLabel
+                    }
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -431,7 +465,7 @@ private fun PingProbeSection(serverHostHint: String) {
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(if (entry.reachable) PillDoneMint else P1Crimson)
+                                        .background(dotColor)
                                 )
                                 Text(
                                     text = "${entry.host}:${entry.port}",
@@ -443,11 +477,11 @@ private fun PingProbeSection(serverHostHint: String) {
                                 )
                             }
                             Text(
-                                text = entry.latencyMs?.let { "$it ms" } ?: "TIMEOUT",
+                                text = rightLabel,
                                 fontFamily = JetBrainsMonoFontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 11.5.sp,
-                                color = if (entry.reachable) PillDoneMint else P1Crimson
+                                fontSize = 11.sp,
+                                color = dotColor
                             )
                         }
                     }
@@ -460,7 +494,27 @@ private fun PingProbeSection(serverHostHint: String) {
 @Composable
 private fun PingResultCard(result: PingProbeResult) {
     val extendedColors = PingDuluTheme.extendedColors
-    val badgeColors = if (result.reachable) extendedColors.syncOnline else extendedColors.priorityP1
+    val badgeColors = when (result.status) {
+        ProbeStatus.REACHABLE -> extendedColors.syncOnline
+        ProbeStatus.PARTIAL_LOSS, ProbeStatus.PORT_CLOSED -> extendedColors.priorityP2
+        else -> extendedColors.priorityP1
+    }
+    val statusIcon = when (result.status) {
+        ProbeStatus.REACHABLE -> Icons.Rounded.CheckCircle
+        ProbeStatus.PARTIAL_LOSS, ProbeStatus.PORT_CLOSED -> Icons.Rounded.WarningAmber
+        else -> Icons.Rounded.ErrorOutline
+    }
+    val headlineLabel = when (result.status) {
+        ProbeStatus.REACHABLE -> "TERBUKA · ${result.successCount}/${result.totalAttempts} OK"
+        ProbeStatus.PARTIAL_LOSS -> "TIDAK STABIL · ${result.successCount}/${result.totalAttempts} OK"
+        ProbeStatus.PORT_CLOSED -> "HOST HIDUP · PORT TERTUTUP"
+        else -> result.status.badgeLabel
+    }
+    val primaryMetricText = when (result.status) {
+        ProbeStatus.REACHABLE, ProbeStatus.PARTIAL_LOSS -> FieldNetworkTools.formatLatencyMs(result.avgLatencyMs)
+        ProbeStatus.PORT_CLOSED -> "RST ${FieldNetworkTools.formatLatencyMs(result.avgLatencyMs)}"
+        else -> "--"
+    }
 
     Surface(
         modifier = Modifier
@@ -474,7 +528,7 @@ private fun PingResultCard(result: PingProbeResult) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -483,30 +537,29 @@ private fun PingResultCard(result: PingProbeResult) {
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = if (result.reachable) {
-                            Icons.Rounded.CheckCircle
-                        } else {
-                            Icons.Rounded.ErrorOutline
-                        },
+                        imageVector = statusIcon,
                         contentDescription = null,
                         tint = badgeColors.content,
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = if (result.reachable) "ONLINE · TERJANGKAU" else "OFFLINE · TIMEOUT",
+                        text = headlineLabel,
                         style = MaterialTheme.typography.labelLarge,
-                        color = badgeColors.content
+                        color = badgeColors.content,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 Text(
-                    text = result.latencyMs?.let { "$it ms" } ?: "-- ms",
+                    text = primaryMetricText,
                     fontFamily = JetBrainsMonoFontFamily,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     color = badgeColors.content
                 )
             }
@@ -517,18 +570,66 @@ private fun PingResultCard(result: PingProbeResult) {
                 color = MaterialTheme.colorScheme.onSurface
             )
 
+            // Raw Per-Attempt Samples (Transparent — no hidden averaging)
+            if (result.attempts.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    result.attempts.forEach { attempt ->
+                        val chipText = when (attempt.status) {
+                            ProbeStatus.REACHABLE -> "#${attempt.sequence} ${FieldNetworkTools.formatLatencyMs(attempt.latencyMs)}"
+                            ProbeStatus.PORT_CLOSED -> "#${attempt.sequence} RST ${FieldNetworkTools.formatLatencyMs(attempt.latencyMs)}"
+                            ProbeStatus.TIMEOUT -> "#${attempt.sequence} Timeout"
+                            else -> "#${attempt.sequence} Gagal"
+                        }
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                            border = BorderStroke(1.dp, badgeColors.border.copy(alpha = 0.55f))
+                        ) {
+                            Text(
+                                text = chipText,
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Min / Avg / Max + Separate DNS timing
+            if (result.avgLatencyMs != null) {
+                Text(
+                    text = "Min ${FieldNetworkTools.formatLatencyMs(result.minLatencyMs)} · " +
+                        "Avg ${FieldNetworkTools.formatLatencyMs(result.avgLatencyMs)} · " +
+                        "Max ${FieldNetworkTools.formatLatencyMs(result.maxLatencyMs)}",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Target: ${result.host}:${result.port}",
+                    text = "IP: ${result.resolvedIp ?: "-"}:${result.port}",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "IP: ${result.resolvedIp ?: "-"}",
+                    text = result.dnsLookupMs?.let {
+                        "DNS: ${FieldNetworkTools.formatLatencyMs(it)}"
+                    } ?: "DNS: IP langsung",
                     fontFamily = JetBrainsMonoFontFamily,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

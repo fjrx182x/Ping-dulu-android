@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.Stage
 import com.example.domain.model.Task
 import com.example.ui.theme.PingDuluTheme
@@ -50,7 +52,7 @@ fun TaskGridCard(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(162.dp)
+            .heightIn(min = 178.dp)
             .testTag("task_grid_card_${task.id}"),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
@@ -59,7 +61,8 @@ fun TaskGridCard(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .heightIn(min = 178.dp)
                 .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -102,6 +105,13 @@ fun TaskGridCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                // Colored Label Badges (e.g., Wi-Fi, Jaringan, Urgent)
+                TaskLabelRow(
+                    labels = task.resolvedLabels,
+                    maxVisible = 2,
+                    compact = true
+                )
+
                 // Location line
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -131,42 +141,38 @@ fun TaskGridCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val reportedCompact = DateEpochUtil.formatReportedTimeCompact(task.createdAtMillis)
                     Row(
                         modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        if (task.stage == Stage.DONE) {
-                            Icon(
-                                imageVector = Icons.Rounded.CheckCircle,
-                                contentDescription = "Selesai",
-                                tint = extendedColors.pillDone,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = "Selesai",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = extendedColors.pillDone,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.AccessTime,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = task.timeSlotLabel,
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Icon(
+                            imageVector = if (task.stage == Stage.DONE) {
+                                Icons.Rounded.CheckCircle
+                            } else {
+                                Icons.Rounded.AccessTime
+                            },
+                            contentDescription = if (task.stage == Stage.DONE) "Selesai · Waktu lapor" else "Waktu lapor",
+                            tint = if (task.stage == Stage.DONE) {
+                                extendedColors.pillDone
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = reportedCompact,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (task.stage == Stage.DONE) {
+                                extendedColors.pillDone
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     StackedAvatarGroup(
@@ -221,12 +227,25 @@ fun TaskListCard(
                 ) {
                     CategoryPill(category = task.category, text = task.ticketCode)
                     PriorityBadge(priority = task.priority)
-                    Text(
-                        text = task.timeSlotLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AccessTime,
+                            contentDescription = "Waktu lapor",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = DateEpochUtil.formatReportedTime(task.createdAtMillis),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Text(
@@ -235,6 +254,12 @@ fun TaskListCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+
+                TaskLabelRow(
+                    labels = task.resolvedLabels,
+                    maxVisible = 3,
+                    compact = true
                 )
 
                 Row(

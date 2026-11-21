@@ -36,6 +36,19 @@ class TaskConverters {
             .getOrDefault(emptyList())
     }
 
+    @TypeConverter
+    fun fromStringList(items: List<String>?): String {
+        if (items.isNullOrEmpty()) return "[]"
+        return runCatching { stringListAdapter.toJson(items) }.getOrDefault("[]")
+    }
+
+    @TypeConverter
+    fun toStringList(json: String?): List<String> {
+        if (json.isNullOrBlank()) return emptyList()
+        return runCatching { stringListAdapter.fromJson(json).orEmpty() }
+            .getOrDefault(emptyList())
+    }
+
     companion object {
         private val moshi: Moshi = Moshi.Builder()
             .addLast(KotlinJsonAdapterFactory())
@@ -51,10 +64,18 @@ class TaskConverters {
             ChecklistItem::class.java
         )
 
+        private val stringListType = Types.newParameterizedType(
+            List::class.java,
+            String::class.java
+        )
+
         private val assigneeListAdapter: JsonAdapter<List<Assignee>> =
             moshi.adapter(assigneeListType)
 
         private val checklistListAdapter: JsonAdapter<List<ChecklistItem>> =
             moshi.adapter(checklistListType)
+
+        private val stringListAdapter: JsonAdapter<List<String>> =
+            moshi.adapter(stringListType)
     }
 }

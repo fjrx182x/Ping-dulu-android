@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.AddTask
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
@@ -29,11 +31,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,30 +43,36 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.Priority
 import com.example.domain.model.TicketCategory
 import com.example.ui.theme.PingDuluNavy
+import java.util.Calendar
 
-private val QuickTimePresets = listOf(
-    "09:00" to 540,
-    "11:00" to 660,
-    "13:30" to 810,
-    "16:00" to 960
+private val QuickLabelPresets = listOf(
+    "Wi-Fi",
+    "Jaringan",
+    "Server",
+    "Hardware",
+    "Keamanan",
+    "Urgent"
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun QuickAddTaskSheet(
-    selectedDateLabel: String,
+    todayDateLabel: String = DateEpochUtil.formatFullDate(DateEpochUtil.todayEpochDay()),
     onDismiss: () -> Unit,
     onSubmit: (
         title: String,
         category: TicketCategory,
         priority: Priority,
         location: String,
-        scheduledTimeMinutes: Int,
-        technicalNotes: String
+        scheduledTimeMinutes: Int?,
+        technicalNotes: String,
+        labels: List<String>
     ) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -73,7 +81,7 @@ fun QuickAddTaskSheet(
     var notes by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(TicketCategory.NET) }
     var selectedPriority by remember { mutableStateOf(Priority.P2_HIGH) }
-    var selectedMinutes by remember { mutableIntStateOf(960) }
+    var selectedLabels by remember { mutableStateOf(setOf<String>()) }
     var showTitleError by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
@@ -98,17 +106,37 @@ fun QuickAddTaskSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Tambah Tiket Lapangan Cepat",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = "Dijadwalkan untuk: $selectedDateLabel",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AccessTime,
+                                contentDescription = "Waktu lapor otomatis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Waktu Lapor: Hari ini ($todayDateLabel) · Otomatis",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(
@@ -179,7 +207,7 @@ fun QuickAddTaskSheet(
             // Priority Selection
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "PRIORITAS SLA",
+                    text = "PRIORITAS TIKET",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -202,28 +230,35 @@ fun QuickAddTaskSheet(
                 }
             }
 
-            // Time Slot Selection
+            // Optional Colored Label Badges Selection
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "JAM JADWAL",
+                    text = "LABEL TIKET (OPSIONAL)",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    QuickTimePresets.forEach { (label, mins) ->
+                    QuickLabelPresets.forEach { label ->
+                        val isSelected = label in selectedLabels
                         FilterChip(
-                            selected = selectedMinutes == mins,
-                            onClick = { selectedMinutes = mins },
+                            selected = isSelected,
+                            onClick = {
+                                selectedLabels = if (isSelected) {
+                                    selectedLabels - label
+                                } else {
+                                    selectedLabels + label
+                                }
+                            },
                             label = { Text(label) },
-                            modifier = Modifier.weight(1f),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = PingDuluNavy,
                                 selectedLabelColor = Color.White
-                            )
+                            ),
+                            modifier = Modifier.testTag("quick_add_label_${label.lowercase()}")
                         )
                     }
                 }
@@ -250,8 +285,9 @@ fun QuickAddTaskSheet(
                             selectedCategory,
                             selectedPriority,
                             location.trim().ifBlank { "Lokasi Lapangan" },
-                            selectedMinutes,
-                            notes.trim()
+                            null,
+                            notes.trim(),
+                            selectedLabels.toList()
                         )
                         onDismiss()
                     }
@@ -269,7 +305,7 @@ fun QuickAddTaskSheet(
                 Icon(imageVector = Icons.Rounded.AddTask, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Simpan Tiket ke Jadwal Offline",
+                    text = "Simpan Tiket ke Jadwal Hari Ini",
                     style = MaterialTheme.typography.labelLarge,
                     color = Color.White
                 )

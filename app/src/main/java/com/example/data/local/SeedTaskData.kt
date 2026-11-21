@@ -45,6 +45,10 @@ object SeedTaskData {
                 ),
                 assignees = listOf(fajarLead, budiMember),
                 isSynced = true,
+                createdAtMillis = nowMillis,
+                dueDateMillis = null,
+                assignedToId = fajarLead.id,
+                labels = listOf("Wi-Fi", "Jaringan", "Urgent"),
                 updatedAtMillis = nowMillis
             ),
             TaskEntity(
@@ -70,6 +74,10 @@ object SeedTaskData {
                 ),
                 assignees = listOf(fajarLead),
                 isSynced = true,
+                createdAtMillis = nowMillis - 10_000L,
+                dueDateMillis = null,
+                assignedToId = fajarLead.id,
+                labels = listOf("Server", "Storage"),
                 updatedAtMillis = nowMillis - 10_000L
             ),
             TaskEntity(
@@ -95,6 +103,10 @@ object SeedTaskData {
                 ),
                 assignees = listOf(budiLead),
                 isSynced = true,
+                createdAtMillis = nowMillis - 20_000L,
+                dueDateMillis = null,
+                assignedToId = budiLead.id,
+                labels = listOf("Hardware"),
                 updatedAtMillis = nowMillis - 20_000L
             ),
             TaskEntity(
@@ -119,6 +131,10 @@ object SeedTaskData {
                 ),
                 assignees = listOf(fajarLead, sitiMember),
                 isSynced = true,
+                createdAtMillis = nowMillis - 30_000L,
+                dueDateMillis = null,
+                assignedToId = fajarLead.id,
+                labels = listOf("Onboarding"),
                 updatedAtMillis = nowMillis - 30_000L
             ),
             TaskEntity(
@@ -144,6 +160,10 @@ object SeedTaskData {
                 ),
                 assignees = listOf(fajarLead),
                 isSynced = true,
+                createdAtMillis = nowMillis - 40_000L,
+                dueDateMillis = null,
+                assignedToId = fajarLead.id,
+                labels = listOf("Keamanan", "Urgent"),
                 updatedAtMillis = nowMillis - 40_000L
             ),
             TaskEntity(
@@ -168,6 +188,10 @@ object SeedTaskData {
                 ),
                 assignees = listOf(budiLead, fajarMember),
                 isSynced = true,
+                createdAtMillis = nowMillis - 50_000L,
+                dueDateMillis = null,
+                assignedToId = budiLead.id,
+                labels = listOf("Jaringan"),
                 updatedAtMillis = nowMillis - 50_000L
             )
         )

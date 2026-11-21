@@ -11,6 +11,8 @@ import com.example.domain.model.TicketCategory
 import com.example.domain.repository.SyncResult
 import com.example.domain.repository.TaskRepository
 import com.example.domain.tools.FieldNetworkTools
+import com.example.domain.tools.NetworkProbeTransport
+import com.example.domain.tools.ProbeStatus
 import com.example.presentation.schedule.ScheduleViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,7 +35,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.net.InetAddress
+import java.net.NoRouteToHostException
 import java.net.ServerSocket
+import java.net.SocketTimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FieldToolsAndDrawerAuditTest {
@@ -102,25 +106,166 @@ class FieldToolsAndDrawerAuditTest {
     }
 
     @Test
-    fun pingProbe_rejectsBlankHostAndSucceedsAgainstLocalTcpSocket() = runTest {
+    fun pingProbe_validatesBadInputAndMeasuresRealOpenAndClosedSocketsHonestly() = runTest {
+        // 1. Invalid inputs must fail fast as INVALID_INPUT without fake latency
         val blankResult = FieldNetworkTools.probeHost("   ", 443)
+        assertEquals(ProbeStatus.INVALID_INPUT, blankResult.status)
         assertFalse(blankResult.reachable)
-        assertNull(blankResult.latencyMs)
+        assertNull(blankResult.avgLatencyMs)
+        assertTrue(blankResult.attempts.isEmpty())
 
-        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+        val badIpResult = FieldNetworkTools.probeHost("192.168.1.999", 443)
+        assertEquals(ProbeStatus.INVALID_INPUT, badIpResult.status)
+        assertFalse(badIpResult.reachable)
+
+        val spaceHostResult = FieldNetworkTools.probeHost("ping fjrx.my.id", 443)
+        assertEquals(ProbeStatus.INVALID_INPUT, spaceHostResult.status)
+
+        // 2. Real open TCP port (3x consecutive handshakes on loopback)
+        ServerSocket(0, 5, InetAddress.getByName("127.0.0.1")).use { server ->
             val port = server.localPort
             val acceptThread = Thread {
-                runCatching { server.accept().close() }
+                repeat(3) {
+                    runCatching { server.accept().close() }
+                }
             }.apply { start() }
 
-            val result = FieldNetworkTools.probeHost("http://127.0.0.1:$port/health", port = port)
-            acceptThread.join(1_500L)
+            // Intentionally pass default port=443 while inline URL specifies :$port to verify inline port parsing
+            val result = FieldNetworkTools.probeHost(
+                rawHost = "HTTP://127.0.0.1:$port/health",
+                port = 443,
+                attempts = 3,
+                intervalMs = 0L
+            )
+            acceptThread.join(2_000L)
 
+            assertEquals(ProbeStatus.REACHABLE, result.status)
             assertTrue(result.reachable)
             assertEquals("127.0.0.1", result.resolvedIp)
-            assertNotNull(result.latencyMs)
-            assertTrue(result.latencyMs!! >= 1L)
+            assertEquals(port, result.port)
+            assertEquals(3, result.totalAttempts)
+            assertEquals(3, result.successCount)
+            assertEquals(0, result.packetLossPercent)
+            assertNull(result.dnsLookupMs) // IP literal does not report fake DNS lookup delay
+            assertNotNull(result.avgLatencyMs)
+            assertTrue(result.minLatencyMs!! <= result.avgLatencyMs!!)
+            assertTrue(result.avgLatencyMs!! <= result.maxLatencyMs!!)
         }
+
+        // 3. Real closed TCP port (OS returns ECONNREFUSED / TCP RST) -> MUST report PORT_CLOSED, NEVER TIMEOUT or REACHABLE
+        val closedPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        val closedResult = FieldNetworkTools.probeHost(
+            rawHost = "127.0.0.1",
+            port = closedPort,
+            attempts = 2,
+            intervalMs = 0L
+        )
+        assertEquals(ProbeStatus.PORT_CLOSED, closedResult.status)
+        assertFalse(closedResult.reachable)
+        assertEquals(0, closedResult.successCount)
+        assertTrue(closedResult.detailMessage.contains("RST", ignoreCase = true))
+
+        // 4. Real non-existent RFC 2606 domain -> MUST report DNS_ERROR and fail fast
+        val dnsFailResult = FieldNetworkTools.probeHost(
+            rawHost = "nonexistent-host.pingdulu.invalid",
+            port = 443,
+            attempts = 3,
+            intervalMs = 0L
+        )
+        assertEquals(ProbeStatus.DNS_ERROR, dnsFailResult.status)
+        assertFalse(dnsFailResult.reachable)
+        assertNull(dnsFailResult.resolvedIp)
+        assertTrue(dnsFailResult.attempts.isEmpty())
+    }
+
+    @Test
+    fun pingProbe_separatesDnsFromTcpRttAndReportsPartialLossTimeoutUnreachableHonestly() = runTest {
+        val loopback = InetAddress.getByName("127.0.0.1")
+
+        // A. Slow DNS (60ms) MUST NOT pollute TCP RTT (12.5, 15.0, 17.5 -> exact avg 15.0ms)
+        val samples = ArrayDeque(listOf(12.5, 15.0, 17.5))
+        val dnsIsolatedResult = FieldNetworkTools.probeHostInternal(
+            rawHost = "ping.fjrx.my.id",
+            port = 443,
+            attempts = 3,
+            intervalMs = 0L,
+            transport = object : NetworkProbeTransport {
+                override fun resolveHost(host: String): InetAddress {
+                    Thread.sleep(60L)
+                    return loopback
+                }
+
+                override suspend fun connectTcp(address: InetAddress, port: Int, timeoutMs: Int): Double {
+                    return samples.removeFirst()
+                }
+            }
+        )
+        assertEquals(ProbeStatus.REACHABLE, dnsIsolatedResult.status)
+        assertNotNull(dnsIsolatedResult.dnsLookupMs)
+        assertTrue("DNS time should reflect ~60ms lookup", dnsIsolatedResult.dnsLookupMs!! >= 45.0)
+        assertEquals(12.5, dnsIsolatedResult.minLatencyMs!!, 0.001)
+        assertEquals(15.0, dnsIsolatedResult.avgLatencyMs!!, 0.001)
+        assertEquals(17.5, dnsIsolatedResult.maxLatencyMs!!, 0.001)
+
+        // B. Partial packet loss (2/3 OK, 1/3 Timeout) -> PARTIAL_LOSS, 33% loss, avg over OK only
+        var callIndex = 0
+        val partialResult = FieldNetworkTools.probeHostInternal(
+            rawHost = "1.1.1.1",
+            port = 443,
+            attempts = 3,
+            intervalMs = 0L,
+            transport = object : NetworkProbeTransport {
+                override fun resolveHost(host: String): InetAddress = loopback
+                override suspend fun connectTcp(address: InetAddress, port: Int, timeoutMs: Int): Double {
+                    callIndex++
+                    return when (callIndex) {
+                        1 -> 10.0
+                        2 -> throw SocketTimeoutException("Read timed out")
+                        else -> 20.0
+                    }
+                }
+            }
+        )
+        assertEquals(ProbeStatus.PARTIAL_LOSS, partialResult.status)
+        assertEquals(2, partialResult.successCount)
+        assertEquals(3, partialResult.totalAttempts)
+        assertEquals(33, partialResult.packetLossPercent)
+        assertEquals(15.0, partialResult.avgLatencyMs!!, 0.001)
+
+        // C. All timeouts -> TIMEOUT, 100% loss, null latency
+        val timeoutResult = FieldNetworkTools.probeHostInternal(
+            rawHost = "192.0.2.1",
+            port = 443,
+            attempts = 3,
+            intervalMs = 0L,
+            transport = object : NetworkProbeTransport {
+                override fun resolveHost(host: String): InetAddress = loopback
+                override suspend fun connectTcp(address: InetAddress, port: Int, timeoutMs: Int): Double {
+                    throw SocketTimeoutException("connect timed out")
+                }
+            }
+        )
+        assertEquals(ProbeStatus.TIMEOUT, timeoutResult.status)
+        assertFalse(timeoutResult.reachable)
+        assertEquals(100, timeoutResult.packetLossPercent)
+        assertNull(timeoutResult.avgLatencyMs)
+
+        // D. NoRouteToHost -> fail-fast on attempt #1 as UNREACHABLE
+        val unreachableResult = FieldNetworkTools.probeHostInternal(
+            rawHost = "10.255.255.1",
+            port = 443,
+            attempts = 3,
+            intervalMs = 0L,
+            transport = object : NetworkProbeTransport {
+                override fun resolveHost(host: String): InetAddress = loopback
+                override suspend fun connectTcp(address: InetAddress, port: Int, timeoutMs: Int): Double {
+                    throw NoRouteToHostException("No route to host")
+                }
+            }
+        )
+        assertEquals(ProbeStatus.UNREACHABLE, unreachableResult.status)
+        assertEquals(1, unreachableResult.totalAttempts)
+        assertFalse(unreachableResult.reachable)
     }
 
     @Test
@@ -236,9 +381,14 @@ private class DrawerAuditFakeRepository(initial: List<Task>) : TaskRepository {
         priority: Priority,
         epochDay: Long,
         location: String,
-        scheduledTimeMinutes: Int,
-        technicalNotes: String
+        scheduledTimeMinutes: Int?,
+        technicalNotes: String,
+        labels: List<String>
     ): Task = tasksFlow.value.first()
 
-    override suspend fun login(email: String, password: String): Result<String> = Result.success("token")
+    override suspend fun login(username: String, password: String): Result<String> = Result.success("token")
+
+    override suspend fun clearSyncedCacheOnLogout() {
+        tasksFlow.value = tasksFlow.value.filter { !it.isSynced }
+    }
 }

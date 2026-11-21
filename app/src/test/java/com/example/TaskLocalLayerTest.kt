@@ -68,5 +68,46 @@ class TaskLocalLayerTest {
         assertEquals(5, hero.totalChecklistCount)
         assertEquals(60, hero.checklistProgressPercent)
         assertEquals(entities.first(), hero.toEntity())
+        assertTrue(hero.isAssignedToUser(3L))
+        assertTrue(hero.isAssignedToUser(2L))
+        assertEquals(listOf("Wi-Fi", "Jaringan", "Urgent"), hero.resolvedLabels)
+    }
+
+    @Test
+    fun taskConverters_roundTripStringLabelsSafely() {
+        val labels = listOf("Wi-Fi", "Jaringan", "Urgent")
+        val json = converters.fromStringList(labels)
+        assertEquals(labels, converters.toStringList(json))
+        assertTrue(converters.toStringList(null).isEmpty())
+        assertTrue(converters.toStringList("{bad_json").isEmpty())
+    }
+
+    @Test
+    fun dateEpochUtil_parsesIsoSqliteAndEpochTimestampsAndFormatsWibReportedTime() {
+        val wib = java.util.TimeZone.getTimeZone("Asia/Jakarta")
+
+        // 2026-11-20T19:15:00Z == 2026-11-21 02:15 WIB (crosses midnight in WIB!)
+        val isoMicros = DateEpochUtil.parseTimestampMillisOrNull("2026-11-20T19:15:00.123456Z")!!
+        val isoExact = DateEpochUtil.parseTimestampMillisOrNull("2026-11-20T19:15:00.123Z")!!
+        val sqliteUtc = DateEpochUtil.parseTimestampMillisOrNull("2026-11-20 19:15:00")!!
+        val offsetWib = DateEpochUtil.parseTimestampMillisOrNull("2026-11-21T02:15:00+07:00")!!
+        val epochSec = DateEpochUtil.parseTimestampMillisOrNull(sqliteUtc / 1000L)!!
+
+        // Microsecond normalization must NOT drift by minutes!
+        assertEquals(isoExact, isoMicros)
+        assertEquals(sqliteUtc, offsetWib)
+        assertEquals(sqliteUtc, epochSec)
+
+        // WIB epoch day MUST be 21 Nov 2026 (NOT 20 Nov UTC!)
+        val expectedWibDay = DateEpochUtil.toEpochDay(2026, 10, 21)
+        assertEquals(expectedWibDay, DateEpochUtil.epochDayFromMillis(sqliteUtc, wib))
+
+        // Reported time formatted relative to same WIB day vs later WIB day
+        val sameDayNow = DateEpochUtil.parseTimestampMillisOrNull("2026-11-21T09:00:00+07:00")!!
+        val twoDaysLaterNow = DateEpochUtil.parseTimestampMillisOrNull("2026-11-23T09:00:00+07:00")!!
+        assertEquals("Hari ini, 02:15 WIB", DateEpochUtil.formatReportedTime(sqliteUtc, sameDayNow, wib))
+        assertEquals("21 Nov 2026, 02:15 WIB", DateEpochUtil.formatReportedTime(sqliteUtc, twoDaysLaterNow, wib))
+        assertEquals("Hari ini, 02:15", DateEpochUtil.formatReportedTimeCompact(sqliteUtc, sameDayNow, wib))
+        assertEquals("21 Nov, 02:15", DateEpochUtil.formatReportedTimeCompact(sqliteUtc, twoDaysLaterNow, wib))
     }
 }

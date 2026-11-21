@@ -206,6 +206,14 @@ fun HeroActiveJobCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                // Colored Label Badges on Navy Hero Surface
+                TaskLabelRow(
+                    labels = task.resolvedLabels,
+                    maxVisible = 3,
+                    compact = true,
+                    onDarkSurface = true
+                )
+
                 // Live Stopwatch Row
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -295,36 +303,35 @@ fun HeroActiveJobCard(
                     }
                 }
 
-                // Target SLA & Location Metadata Row
-                Row(
+                // Waktu Lapor & Location Metadata
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.AccessTimeFilled,
-                            contentDescription = "Target SLA",
+                            contentDescription = "Waktu lapor",
                             tint = LeadStarAmber,
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            text = "Target SLA: ${task.slaTargetTime}",
+                            text = "Dilaporkan: ${DateEpochUtil.formatReportedTime(task.createdAtMillis)}",
+                            modifier = Modifier.testTag("hero_reported_time_text"),
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.92f),
+                            color = Color.White.copy(alpha = 0.94f),
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
-                            softWrap = false
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.LocationOn,
@@ -332,7 +339,6 @@ fun HeroActiveJobCard(
                             tint = Color.White.copy(alpha = 0.78f),
                             modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = task.location,
                             style = MaterialTheme.typography.bodySmall,

@@ -3,7 +3,6 @@ package com.example.data.local
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -33,6 +32,7 @@ enum class ShiftStatus(val label: String) {
 data class UserSessionPrefs(
     val authToken: String = "",
     val serverBaseUrl: String = NetworkModule.DEFAULT_BASE_URL,
+    val userId: Long = 0L,
     val technicianName: String = "Fajar",
     val technicianRole: String = "admin",
     val themePreference: ThemePreference = ThemePreference.LIGHT,
@@ -48,15 +48,17 @@ class AppPreferences(context: Context) : TokenProvider {
     private var cachedToken: String? = null
 
     @Volatile
+    private var cachedUserId: Long = 0L
+
+    @Volatile
     private var cachedServerBaseUrl: String = NetworkModule.DEFAULT_BASE_URL
 
     val sessionFlow: Flow<UserSessionPrefs> = dataStore.data.map { prefs ->
         val token = prefs[KEY_AUTH_TOKEN].orEmpty()
+        val userId = prefs[KEY_USER_ID] ?: 0L
         cachedToken = token.ifBlank { null }
-        val resolvedUrl = NetworkModule.normalizeBaseUrl(
-            prefs[KEY_SERVER_URL] ?: NetworkModule.DEFAULT_BASE_URL
-        )
-        cachedServerBaseUrl = resolvedUrl
+        cachedUserId = userId
+        cachedServerBaseUrl = NetworkModule.DEFAULT_BASE_URL
         val themeRaw = prefs[KEY_THEME_PREF]
         val themePref = when (themeRaw) {
             "DARK" -> ThemePreference.DARK
@@ -71,7 +73,8 @@ class AppPreferences(context: Context) : TokenProvider {
         }
         UserSessionPrefs(
             authToken = token,
-            serverBaseUrl = resolvedUrl,
+            serverBaseUrl = NetworkModule.DEFAULT_BASE_URL,
+            userId = userId,
             technicianName = prefs[KEY_TECH_NAME] ?: "Fajar",
             technicianRole = prefs[KEY_TECH_ROLE] ?: "admin",
             themePreference = themePref,
@@ -82,21 +85,29 @@ class AppPreferences(context: Context) : TokenProvider {
 
     override fun getToken(): String? = cachedToken
 
-    fun getServerBaseUrl(): String = cachedServerBaseUrl
+    fun getUserId(): Long = cachedUserId
+
+    fun getServerBaseUrl(): String = NetworkModule.DEFAULT_BASE_URL
 
     suspend fun warmUpTokenCache() {
         val prefs = dataStore.data.first()
         cachedToken = prefs[KEY_AUTH_TOKEN]?.takeIf { it.isNotBlank() }
-        cachedServerBaseUrl = NetworkModule.normalizeBaseUrl(
-            prefs[KEY_SERVER_URL] ?: NetworkModule.DEFAULT_BASE_URL
-        )
+        cachedUserId = prefs[KEY_USER_ID] ?: 0L
+        cachedServerBaseUrl = NetworkModule.DEFAULT_BASE_URL
     }
 
-    suspend fun saveAuthSession(token: String, technicianName: String, role: String) {
+    suspend fun saveAuthSession(
+        token: String,
+        technicianName: String,
+        role: String,
+        userId: Long = 0L
+    ) {
         val trimmedToken = token.trim()
         cachedToken = trimmedToken.ifBlank { null }
+        cachedUserId = userId
         dataStore.edit { prefs ->
             prefs[KEY_AUTH_TOKEN] = trimmedToken
+            if (userId > 0L) prefs[KEY_USER_ID] = userId else prefs.remove(KEY_USER_ID)
             if (technicianName.isNotBlank()) prefs[KEY_TECH_NAME] = technicianName.trim()
             if (role.isNotBlank()) prefs[KEY_TECH_ROLE] = role.trim()
         }
@@ -104,8 +115,10 @@ class AppPreferences(context: Context) : TokenProvider {
 
     suspend fun clearAuthToken() {
         cachedToken = null
+        cachedUserId = 0L
         dataStore.edit { prefs ->
             prefs.remove(KEY_AUTH_TOKEN)
+            prefs.remove(KEY_USER_ID)
         }
     }
 
@@ -137,6 +150,7 @@ class AppPreferences(context: Context) : TokenProvider {
 
     companion object {
         private val KEY_AUTH_TOKEN = stringPreferencesKey("auth_token")
+        private val KEY_USER_ID = longPreferencesKey("technician_user_id")
         private val KEY_SERVER_URL = stringPreferencesKey("server_base_url")
         private val KEY_TECH_NAME = stringPreferencesKey("technician_name")
         private val KEY_TECH_ROLE = stringPreferencesKey("technician_role")

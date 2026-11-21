@@ -11,6 +11,7 @@ import com.example.domain.repository.SyncResult
 import com.example.domain.repository.TaskRepository
 import com.example.presentation.schedule.DayIndicatorType
 import com.example.presentation.schedule.LayoutMode
+import com.example.presentation.schedule.NotificationCategory
 import com.example.presentation.schedule.ScheduleViewModel
 import com.example.presentation.schedule.StatusFilter
 import kotlinx.coroutines.Dispatchers
@@ -188,10 +189,215 @@ class ScheduleViewModelAuditTest {
         vm.stopBackgroundJobs()
         collector.cancel()
     }
+
+    @Test
+    fun loginGatekeeper_validatesBlankInputIsolatesLoginErrorsAndResetsOnLogout() = runTest(testDispatcher) {
+        val repo = FakeTaskRepository(
+            initial = SeedTaskData.createInitialTasks(baseEpochDay = baseEpochDay).map { it.toDomain() },
+            loginResult = Result.failure(IllegalStateException("Username atau kata sandi salah."))
+        )
+        val vm = ScheduleViewModel(
+            repository = repo,
+            baseEpochDayProvider = { baseEpochDay },
+            enableBackgroundTicker = false,
+            enableSseStream = false
+        )
+
+        val collector = backgroundScope.launch { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        // Gatekeeper blocks Agenda until token is present
+        assertTrue(vm.uiState.value.isSessionLoaded)
+        assertFalse(vm.uiState.value.isLoggedIn)
+
+        // Blank credentials populate loginErrorMessage only (not syncMessage)
+        vm.loginToServer("  ", "")
+        advanceUntilIdle()
+        assertEquals("Username dan kata sandi wajib diisi.", vm.uiState.value.loginErrorMessage)
+
+        vm.clearLoginError()
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.loginErrorMessage)
+
+        // Failed login displays error in loginErrorMessage and keeps isLoggingIn = false afterwards
+        vm.loginToServer("fajar", "salah")
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.isLoggingIn)
+        assertEquals("Username atau kata sandi salah.", vm.uiState.value.loginErrorMessage)
+
+        // Logout clears loginErrorMessage, filters, and open sheet cleanly
+        vm.toggleOnlyCriticalP1()
+        vm.openTaskDetail(59L)
+        advanceUntilIdle()
+        vm.logoutFromServer()
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.loginErrorMessage)
+        assertEquals(null, vm.uiState.value.syncMessage)
+        assertEquals(0, vm.uiState.value.activeDrawerFilterCount)
+        assertEquals(null, vm.uiState.value.selectedTaskForSheet)
+
+        vm.stopBackgroundJobs()
+        collector.cancel()
+    }
+
+    @Test
+    fun loginToServer_onSuccessAutomaticallyTriggersServerSyncAndLogoutClearsCache() = runTest(testDispatcher) {
+        val repo = FakeTaskRepository(
+            initial = SeedTaskData.createInitialTasks(baseEpochDay = baseEpochDay).map { it.toDomain() },
+            loginResult = Result.success("jwt_live_token"),
+            syncResult = SyncResult.Success(downloadedCount = 4, uploadedCount = 0)
+        )
+        val vm = ScheduleViewModel(
+            repository = repo,
+            baseEpochDayProvider = { baseEpochDay },
+            enableBackgroundTicker = false,
+            enableSseStream = false
+        )
+
+        val collector = backgroundScope.launch { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertEquals(0, repo.refreshCallCount)
+
+        // Successful login trims username and immediately triggers refreshTasksFromServer()
+        vm.loginToServer("  fajar  ", "secret_pass")
+        advanceUntilIdle()
+
+        assertEquals("fajar", repo.lastLoginUsername)
+        assertEquals(1, repo.refreshCallCount)
+        assertEquals(null, vm.uiState.value.loginErrorMessage)
+        assertTrue(vm.uiState.value.syncMessage?.contains("4 tiket") == true)
+
+        // Logout clears synced Room cache cleanly
+        vm.logoutFromServer()
+        advanceUntilIdle()
+        assertEquals(1, repo.clearCacheCallCount)
+        assertEquals(null, vm.uiState.value.syncMessage)
+
+        vm.stopBackgroundJobs()
+        collector.cancel()
+    }
+
+    @Test
+    fun notificationCenter_derivesRealOperationalAlertsTracksReadStateAndLogsSyncEvents() = runTest(testDispatcher) {
+        val repo = FakeTaskRepository(
+            initial = SeedTaskData.createInitialTasks(baseEpochDay = baseEpochDay).map { it.toDomain() },
+            syncResult = SyncResult.Success(downloadedCount = 3, uploadedCount = 1)
+        )
+        val vm = ScheduleViewModel(
+            repository = repo,
+            baseEpochDayProvider = { baseEpochDay },
+            enableBackgroundTicker = false,
+            enableSseStream = false
+        )
+
+        val collector = backgroundScope.launch { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        val initialState = vm.uiState.value
+        assertTrue(initialState.notifications.isNotEmpty())
+        assertEquals(initialState.notifications.size, initialState.unreadNotificationCount)
+
+        // Contains active running stopwatch alert, P1 critical alert, and today's backlog alert
+        assertTrue(initialState.notifications.any { it.id == "timer_running_59" })
+        assertTrue(initialState.notifications.any { it.category == NotificationCategory.CRITICAL && it.taskId == 59L })
+        assertTrue(initialState.notifications.any { it.id == "today_backlog_60" })
+
+        // Mark a single notification as read -> unread count decrements by 1
+        val firstId = initialState.notifications.first().id
+        vm.markNotificationRead(firstId)
+        advanceUntilIdle()
+        assertEquals(initialState.notifications.size - 1, vm.uiState.value.unreadNotificationCount)
+        assertTrue(vm.uiState.value.notifications.first { it.id == firstId }.isRead)
+
+        // Mark all read -> unread count drops to 0
+        vm.markAllNotificationsRead()
+        advanceUntilIdle()
+        assertEquals(0, vm.uiState.value.unreadNotificationCount)
+
+        // Mutating a checklist item offline adds a pending sync notification -> unread count becomes 1
+        vm.toggleChecklistItem(59L, 103L)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.notifications.any { it.isSyncAction && !it.isRead })
+        assertEquals(1, vm.uiState.value.unreadNotificationCount)
+
+        // Triggering sync records a real SYNC SUKSES activity event
+        vm.triggerSync()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.notifications.any { it.badgeText == "SYNC SUKSES" })
+
+        vm.stopBackgroundJobs()
+        collector.cancel()
+    }
+
+    @Test
+    fun viewModel_aligns7DayHorizonToRealTodayOnRolloverLoginAndQuickAdd() = runTest(testDispatcher) {
+        var currentDay = baseEpochDay
+        val repo = FakeTaskRepository(
+            initial = SeedTaskData.createInitialTasks(baseEpochDay = baseEpochDay).map { it.toDomain() },
+            loginResult = Result.success("jwt_token"),
+            syncResult = SyncResult.Success(downloadedCount = 2, uploadedCount = 0)
+        )
+        val vm = ScheduleViewModel(
+            repository = repo,
+            baseEpochDayProvider = { currentDay },
+            enableBackgroundTicker = false,
+            enableSseStream = false
+        )
+
+        val collector = backgroundScope.launch { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        // Switch away to Day + 3
+        vm.onDaySelected(baseEpochDay + 3L)
+        advanceUntilIdle()
+        assertEquals(baseEpochDay + 3L, vm.uiState.value.selectedEpochDay)
+
+        // Creating a quick task MUST schedule to real todayEpochDay and snap selection back to today
+        vm.createQuickTask(
+            title = "Perbaiki AP Lantai 5",
+            category = TicketCategory.NET,
+            priority = Priority.P1_CRITICAL,
+            location = "Gedung Utama Lt. 5"
+        )
+        advanceUntilIdle()
+        assertEquals(currentDay, vm.uiState.value.selectedEpochDay)
+        assertTrue(vm.uiState.value.filteredTasks.any {
+            it.title == "Perbaiki AP Lantai 5" && it.scheduledDateEpochDay == currentDay
+        })
+
+        // Simulate midnight crossing to next day + Activity resume syncTodayHorizon()
+        currentDay = baseEpochDay + 1L
+        vm.syncTodayHorizon()
+        advanceUntilIdle()
+        assertEquals(currentDay, vm.uiState.value.scheduleDays.first().epochDay)
+        assertTrue(vm.uiState.value.scheduleDays.first().isToday)
+        assertEquals(currentDay, vm.uiState.value.selectedEpochDay)
+
+        // Switch to Day + 4 then login -> must automatically select real todayEpochDay
+        vm.onDaySelected(currentDay + 4L)
+        advanceUntilIdle()
+        vm.loginToServer("fajar", "pass123")
+        advanceUntilIdle()
+        assertEquals(currentDay, vm.uiState.value.selectedEpochDay)
+
+        vm.stopBackgroundJobs()
+        collector.cancel()
+    }
 }
 
-private class FakeTaskRepository(initial: List<Task>) : TaskRepository {
+private class FakeTaskRepository(
+    initial: List<Task>,
+    private val loginResult: Result<String> = Result.success("fake_token"),
+    private val syncResult: SyncResult? = null
+) : TaskRepository {
     private val tasksFlow = MutableStateFlow(initial)
+    var refreshCallCount: Int = 0
+        private set
+    var clearCacheCallCount: Int = 0
+        private set
+    var lastLoginUsername: String? = null
+        private set
 
     fun getTaskSnapshot(taskId: Long): Task? = tasksFlow.value.firstOrNull { it.id == taskId }
 
@@ -218,8 +424,13 @@ private class FakeTaskRepository(initial: List<Task>) : TaskRepository {
 
     override suspend fun initializeOfflineCache() = Unit
 
-    override suspend fun refreshTasksFromServer(): SyncResult =
-        SyncResult.OfflineFallback(pendingUploadCount = tasksFlow.value.count { !it.isSynced }, reason = "Test offline")
+    override suspend fun refreshTasksFromServer(): SyncResult {
+        refreshCallCount++
+        return syncResult ?: SyncResult.OfflineFallback(
+            pendingUploadCount = tasksFlow.value.count { !it.isSynced },
+            reason = "Test offline"
+        )
+    }
 
     override suspend fun toggleChecklistItem(taskId: Long, checklistId: Long) {
         tasksFlow.value = tasksFlow.value.map { task ->
@@ -287,8 +498,9 @@ private class FakeTaskRepository(initial: List<Task>) : TaskRepository {
         priority: Priority,
         epochDay: Long,
         location: String,
-        scheduledTimeMinutes: Int,
-        technicalNotes: String
+        scheduledTimeMinutes: Int?,
+        technicalNotes: String,
+        labels: List<String>
     ): Task {
         val created = Task(
             id = -(tasksFlow.value.size + 100L),
@@ -305,14 +517,24 @@ private class FakeTaskRepository(initial: List<Task>) : TaskRepository {
             isTimerRunning = false,
             timerStartedAtMillis = null,
             location = location,
-            slaTargetTime = "18:00 WIB",
+            slaTargetTime = "",
             checklist = emptyList(),
             assignees = emptyList(),
-            isSynced = false
+            isSynced = false,
+            dueDateMillis = null,
+            labels = labels
         )
         tasksFlow.value = tasksFlow.value + created
         return created
     }
 
-    override suspend fun login(email: String, password: String): Result<String> = Result.success("fake_token")
+    override suspend fun login(username: String, password: String): Result<String> {
+        lastLoginUsername = username
+        return loginResult
+    }
+
+    override suspend fun clearSyncedCacheOnLogout() {
+        clearCacheCallCount++
+        tasksFlow.value = tasksFlow.value.filter { !it.isSynced }
+    }
 }

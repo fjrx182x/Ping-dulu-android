@@ -23,9 +23,9 @@ data class TaskResponseDto(
 @JsonClass(generateAdapter = true)
 data class ChecklistItemDto(
     @Json(name = "id")
-    val id: Long,
+    val id: Long = 0L,
     @Json(name = "label")
-    val label: String,
+    val label: String = "",
     @Json(name = "is_done")
     val isDone: Int = 0
 )
@@ -33,23 +33,33 @@ data class ChecklistItemDto(
 @JsonClass(generateAdapter = true)
 data class AssigneeDto(
     @Json(name = "id")
-    val id: Long,
+    val id: Long = 0L,
+    @Json(name = "username")
+    val username: String? = null,
+    @Json(name = "display_name")
+    val displayName: String? = null,
     @Json(name = "name")
-    val name: String,
+    val name: String? = null,
     @Json(name = "role")
     val role: String = "technician",
     @Json(name = "is_lead")
     val isLead: Int = 0
-)
+) {
+    val resolvedName: String
+        get() = displayName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: name?.trim()?.takeIf { it.isNotEmpty() }
+            ?: username?.trim()?.takeIf { it.isNotEmpty() }
+            ?: "Teknisi"
+}
 
 @JsonClass(generateAdapter = true)
 data class TaskDto(
     @Json(name = "id")
     val id: Long,
     @Json(name = "ticket_code")
-    val ticketCode: String,
+    val ticketCode: String? = null,
     @Json(name = "title")
-    val title: String,
+    val title: String = "",
     @Json(name = "project_or_category")
     val projectOrCategory: String? = null,
     @Json(name = "scheduled_date_epoch_day")
@@ -70,6 +80,18 @@ data class TaskDto(
     val location: String? = null,
     @Json(name = "sla_target_time")
     val slaTargetTime: String? = null,
+    @Json(name = "created_at")
+    val createdAt: Any? = null,
+    @Json(name = "due_date")
+    val dueDate: Any? = null,
+    @Json(name = "assigned_to_id")
+    val assignedToId: Long? = null,
+    @Json(name = "assigned_to")
+    val assignedToLegacyId: Long? = null,
+    @Json(name = "labels")
+    val labels: List<String>? = null,
+    @Json(name = "tags")
+    val tags: List<String>? = null,
     @Json(name = "checklist")
     val checklist: List<ChecklistItemDto>? = null,
     @Json(name = "assignees")
@@ -78,7 +100,7 @@ data class TaskDto(
 
 fun ChecklistItemDto.toDomain(): ChecklistItem = ChecklistItem(
     id = id,
-    label = label,
+    label = label.ifBlank { "Langkah #$id" },
     isDone = isDone != 0
 )
 
@@ -90,24 +112,36 @@ fun ChecklistItem.toDto(): ChecklistItemDto = ChecklistItemDto(
 
 fun AssigneeDto.toDomain(): Assignee = Assignee(
     id = id,
-    name = name,
-    role = role,
+    name = resolvedName,
+    role = role.ifBlank { "technician" },
     isLead = isLead != 0
 )
 
 fun TaskDto.toEntity(nowMillis: Long = System.currentTimeMillis()): TaskEntity {
-    val startMinutes = scheduledTimeMinutes ?: 540
+    val startMinutes = scheduledTimeMinutes?.takeIf { it in 0..(23 * 60 + 59) }
     val resolvedCategory = TicketCategory.fromString(projectOrCategory)
     val resolvedPriority = Priority.fromString(priority)
     val resolvedStage = Stage.fromString(stage)
     val isRunning = resolvedStage == Stage.IN_PROGRESS && timerStartedAtMillis != null && timerStartedAtMillis > 0L
+    val parsedCreatedAt = DateEpochUtil.parseTimestampMillis(createdAt, fallbackMillis = nowMillis)
+    val parsedDueDate = DateEpochUtil.parseTimestampMillisOrNull(dueDate)
+    val resolvedEpochDay = scheduledDateEpochDay?.takeIf { it > 15_000L }
+        ?: DateEpochUtil.epochDayFromMillis(parsedCreatedAt)
+    val resolvedAssignees = assignees.orEmpty().map { it.toDomain() }
+    val resolvedAssignedToId = assignedToId?.takeIf { it > 0L }
+        ?: assignedToLegacyId?.takeIf { it > 0L }
+        ?: resolvedAssignees.firstOrNull { it.isLead }?.id
+    val resolvedLabels = (labels ?: tags).orEmpty()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
 
     return TaskEntity(
         id = id,
-        ticketCode = ticketCode.ifBlank { "${resolvedCategory.code}-$id" },
-        title = title,
+        ticketCode = ticketCode.orEmpty().ifBlank { "${resolvedCategory.code}-$id" },
+        title = title.ifBlank { "Tugas Lapangan #$id" },
         category = resolvedCategory.code,
-        scheduledDateEpochDay = scheduledDateEpochDay ?: DateEpochUtil.todayEpochDay(nowMillis),
+        scheduledDateEpochDay = resolvedEpochDay,
         scheduledTimeMinutes = startMinutes,
         timeSlotLabel = DateEpochUtil.formatMinutesToTimeSlot(startMinutes),
         priority = resolvedPriority.apiValue,
@@ -117,10 +151,14 @@ fun TaskDto.toEntity(nowMillis: Long = System.currentTimeMillis()): TaskEntity {
         isTimerRunning = isRunning,
         timerStartedAtMillis = if (isRunning) timerStartedAtMillis else null,
         location = location.orEmpty().ifBlank { "Lokasi Lapangan" },
-        slaTargetTime = slaTargetTime.orEmpty().ifBlank { "17:00 WIB" },
+        slaTargetTime = slaTargetTime.orEmpty(),
         checklist = checklist.orEmpty().map { it.toDomain() },
-        assignees = assignees.orEmpty().map { it.toDomain() },
+        assignees = resolvedAssignees,
         isSynced = true,
+        createdAtMillis = parsedCreatedAt,
+        dueDateMillis = parsedDueDate,
+        assignedToId = resolvedAssignedToId,
+        labels = resolvedLabels,
         updatedAtMillis = nowMillis
     )
 }

@@ -47,6 +47,34 @@ data class DayHorizonModel(
     val indicatorType: DayIndicatorType
 )
 
+enum class NotificationCategory(val label: String) {
+    ALL("Semua"),
+    CRITICAL("Penting"),
+    SCHEDULE("Jadwal"),
+    SYNC("Sinkronisasi")
+}
+
+enum class NotificationSeverity {
+    CRITICAL,
+    WARNING,
+    ACTIVE,
+    INFO
+}
+
+@Immutable
+data class FieldNotificationItem(
+    val id: String,
+    val category: NotificationCategory,
+    val severity: NotificationSeverity,
+    val title: String,
+    val subtitle: String,
+    val badgeText: String,
+    val timestampLabel: String,
+    val taskId: Long? = null,
+    val isSyncAction: Boolean = false,
+    val isRead: Boolean = false
+)
+
 @Immutable
 data class StatusFilterCounts(
     val all: Int = 0,
@@ -57,6 +85,7 @@ data class StatusFilterCounts(
 
 @Immutable
 data class ScheduleUiState(
+    val currentUserId: Long = 0L,
     val technicianName: String = "Fajar",
     val technicianRole: String = "admin",
     val shiftStatus: ShiftStatus = ShiftStatus.ON_DUTY,
@@ -81,14 +110,23 @@ data class ScheduleUiState(
     val unsyncedCount: Int = 0,
     val syncStatusBadge: SyncStatusBadge = SyncStatusBadge.SYNCED_LOCAL,
     val syncMessage: String? = null,
+    val loginErrorMessage: String? = null,
     val sseState: SseConnectionState = SseConnectionState.OFFLINE,
     val serverBaseUrl: String = NetworkModule.DEFAULT_BASE_URL,
-    val isAuthenticated: Boolean = false,
+    val authToken: String? = null,
+    val isSessionLoaded: Boolean = false,
     val isDarkTheme: Boolean = false,
     val lastSyncedAtMillis: Long = 0L,
-    val unreadNotificationCount: Int = 2,
+    val notifications: List<FieldNotificationItem> = emptyList(),
+    val unreadNotificationCount: Int = 0,
     val isLoggingIn: Boolean = false
 ) {
+    val isLoggedIn: Boolean
+        get() = !authToken.isNullOrBlank()
+
+    val isAuthenticated: Boolean
+        get() = isLoggedIn
+
     val activeDrawerFilterCount: Int
         get() = (if (onlyMyTickets) 1 else 0) +
             (if (onlyCriticalP1) 1 else 0) +

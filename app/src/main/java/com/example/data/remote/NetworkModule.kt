@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 
 object NetworkModule {
 
-    const val DEFAULT_BASE_URL = "https://ping.fjrx.my.id/"
+    const val DEFAULT_BASE_URL = PingDuluApiService.FIXED_BASE_URL
 
     fun normalizeBaseUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()

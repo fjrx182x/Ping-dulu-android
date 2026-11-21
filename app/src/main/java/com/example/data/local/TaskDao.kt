@@ -14,13 +14,14 @@ interface TaskDao {
         SELECT * FROM tasks
         WHERE scheduled_date_epoch_day = :epochDay
         ORDER BY
+            CASE WHEN scheduled_time_minutes IS NOT NULL THEN scheduled_time_minutes ELSE 9999 END ASC,
             CASE priority
                 WHEN 'P1_CRITICAL' THEN 1
                 WHEN 'P2_HIGH' THEN 2
                 ELSE 3
             END ASC,
-            scheduled_time_minutes ASC,
-            id ASC
+            created_at DESC,
+            id DESC
         """
     )
     fun getTasksByEpochDay(epochDay: Long): Flow<List<TaskEntity>>
@@ -29,7 +30,11 @@ interface TaskDao {
         """
         SELECT * FROM tasks
         WHERE scheduled_date_epoch_day BETWEEN :startEpochDay AND :endEpochDay
-        ORDER BY scheduled_date_epoch_day ASC, scheduled_time_minutes ASC, id ASC
+        ORDER BY
+            scheduled_date_epoch_day ASC,
+            CASE WHEN scheduled_time_minutes IS NOT NULL THEN scheduled_time_minutes ELSE 9999 END ASC,
+            created_at DESC,
+            id DESC
         """
     )
     fun getTasksInRange(startEpochDay: Long, endEpochDay: Long): Flow<List<TaskEntity>>
@@ -37,7 +42,11 @@ interface TaskDao {
     @Query(
         """
         SELECT * FROM tasks
-        ORDER BY scheduled_date_epoch_day ASC, scheduled_time_minutes ASC, id ASC
+        ORDER BY
+            scheduled_date_epoch_day ASC,
+            CASE WHEN scheduled_time_minutes IS NOT NULL THEN scheduled_time_minutes ELSE 9999 END ASC,
+            created_at DESC,
+            id DESC
         """
     )
     fun getAllTasks(): Flow<List<TaskEntity>>
@@ -156,4 +165,10 @@ interface TaskDao {
 
     @Query("DELETE FROM tasks WHERE id = :taskId")
     suspend fun deleteTaskById(taskId: Long)
+
+    @Query("DELETE FROM tasks WHERE is_synced = 1 AND id NOT IN (:activeIds)")
+    suspend fun deleteStaleSyncedTasks(activeIds: List<Long>)
+
+    @Query("DELETE FROM tasks WHERE is_synced = 1")
+    suspend fun deleteAllSyncedTasks()
 }

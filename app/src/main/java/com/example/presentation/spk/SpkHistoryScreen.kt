@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
@@ -41,6 +42,7 @@ import com.example.domain.model.Stage
 import com.example.domain.model.Task
 import com.example.presentation.components.CategoryPill
 import com.example.presentation.components.StackedAvatarGroup
+import com.example.presentation.components.TaskLabelRow
 import com.example.presentation.schedule.ScheduleUiState
 import com.example.ui.theme.HeroNavyGradient
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -285,13 +287,32 @@ private fun SpkCompletedCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            TaskLabelRow(
+                labels = task.resolvedLabels,
+                maxVisible = 3,
+                compact = true
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(
-                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AccessTime,
+                        contentDescription = "Waktu lapor",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "Dilaporkan: ${DateEpochUtil.formatReportedTime(task.createdAtMillis)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -302,7 +323,7 @@ private fun SpkCompletedCard(
                         modifier = Modifier.size(13.dp)
                     )
                     Text(
-                        text = "${task.location} · ${DateEpochUtil.formatFullDate(task.scheduledDateEpochDay)}",
+                        text = task.location,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

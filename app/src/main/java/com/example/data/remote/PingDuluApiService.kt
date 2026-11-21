@@ -1,19 +1,18 @@
 package com.example.data.remote
 
-import com.example.data.remote.dto.ChecklistSyncDto
+import com.example.data.remote.dto.ChecklistStepToggleDto
 import com.example.data.remote.dto.CreateTaskRequestDto
 import com.example.data.remote.dto.LoginRequestDto
 import com.example.data.remote.dto.LoginResponseDto
 import com.example.data.remote.dto.StageUpdateDto
 import com.example.data.remote.dto.TaskDto
 import com.example.data.remote.dto.TaskResponseDto
-import com.example.data.remote.dto.TimerUpdateDto
+import com.example.data.remote.dto.TimerActionRequestDto
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
-import retrofit2.http.PUT
 import retrofit2.http.Path
 
 interface PingDuluApiService {
@@ -31,7 +30,7 @@ interface PingDuluApiService {
         @Body body: CreateTaskRequestDto
     ): Response<TaskDto>
 
-    @PATCH("api/tasks/{id}/stage")
+    @POST("api/tasks/{id}/stage")
     suspend fun updateStage(
         @Path("id") id: Long,
         @Body body: StageUpdateDto
@@ -40,12 +39,17 @@ interface PingDuluApiService {
     @POST("api/tasks/{id}/timer")
     suspend fun updateTimer(
         @Path("id") id: Long,
-        @Body body: TimerUpdateDto
+        @Body body: TimerActionRequestDto
     ): Response<Unit>
 
-    @PUT("api/tasks/{id}/checklist")
-    suspend fun syncChecklist(
+    @PATCH("api/tasks/{id}/checklist/{stepId}")
+    suspend fun toggleChecklistStep(
         @Path("id") id: Long,
-        @Body body: ChecklistSyncDto
+        @Path("stepId") stepId: Long,
+        @Body body: ChecklistStepToggleDto
     ): Response<Unit>
+
+    companion object {
+        const val FIXED_BASE_URL = "https://ping.fjrx.my.id/"
+    }
 }

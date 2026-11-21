@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Schedule
@@ -47,6 +48,7 @@ import com.example.domain.model.Task
 import com.example.presentation.components.CategoryPill
 import com.example.presentation.components.PriorityBadge
 import com.example.presentation.components.StackedAvatarGroup
+import com.example.presentation.components.TaskLabelRow
 import com.example.presentation.schedule.ScheduleUiState
 import com.example.ui.theme.PingDuluNavy
 import com.example.ui.theme.PingDuluTheme
@@ -67,7 +69,11 @@ fun KanbanBoardScreen(
 
     val stageTasks = uiState.allTasks
         .filter { it.stage == selectedStage }
-        .sortedWith(compareBy({ it.priority.sortRank }, { it.scheduledDateEpochDay }, { it.scheduledTimeMinutes }))
+        .sortedWith(
+            compareBy<Task> { it.priority.sortRank }
+                .thenByDescending { it.createdAtMillis }
+                .thenByDescending { it.id }
+        )
 
     Column(
         modifier = modifier
@@ -270,11 +276,22 @@ private fun KanbanStageTaskCard(
                     CategoryPill(category = task.category, text = task.ticketCode)
                     PriorityBadge(priority = task.priority)
                 }
-                Text(
-                    text = DateEpochUtil.formatFullDate(task.scheduledDateEpochDay),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AccessTime,
+                        contentDescription = "Waktu lapor",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = DateEpochUtil.formatReportedTimeCompact(task.createdAtMillis),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Text(
@@ -283,6 +300,12 @@ private fun KanbanStageTaskCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
+            )
+
+            TaskLabelRow(
+                labels = task.resolvedLabels,
+                maxVisible = 3,
+                compact = true
             )
 
             Row(

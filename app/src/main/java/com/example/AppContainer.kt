@@ -8,6 +8,7 @@ import com.example.data.remote.PingDuluApiService
 import com.example.data.remote.SseEventClient
 import com.example.data.repository.TaskRepositoryImpl
 import com.example.domain.repository.TaskRepository
+import com.example.util.NotificationHelper
 import com.squareup.moshi.Moshi
 import okhttp3.OkHttpClient
 
@@ -19,38 +20,20 @@ class AppContainer private constructor(appContext: Context) {
 
     val appDatabase: AppDatabase = AppDatabase.getInstance(appContext)
     val appPreferences: AppPreferences = AppPreferences(appContext)
+    val notificationHelper: NotificationHelper = NotificationHelper(appContext).apply {
+        ensureChannelCreated()
+    }
     val moshi: Moshi = NetworkModule.createMoshi()
     val okHttpClient: OkHttpClient = NetworkModule.createOkHttpClient(appPreferences)
     val sseEventClient: SseEventClient = SseEventClient(okHttpClient)
 
-    @Volatile
-    private var cachedBaseUrl: String = NetworkModule.DEFAULT_BASE_URL
+    private val apiService: PingDuluApiService = NetworkModule.createApiService(
+        baseUrl = PingDuluApiService.FIXED_BASE_URL,
+        okHttpClient = okHttpClient,
+        moshi = moshi
+    )
 
-    @Volatile
-    private var cachedApiService: PingDuluApiService? = null
-
-    fun resolveApiService(): PingDuluApiService {
-        val normalized = NetworkModule.normalizeBaseUrl(appPreferences.getServerBaseUrl())
-        val existing = cachedApiService
-        if (existing != null && cachedBaseUrl == normalized) {
-            return existing
-        }
-        return synchronized(this) {
-            val recheck = cachedApiService
-            if (recheck != null && cachedBaseUrl == normalized) {
-                recheck
-            } else {
-                NetworkModule.createApiService(
-                    baseUrl = normalized,
-                    okHttpClient = okHttpClient,
-                    moshi = moshi
-                ).also {
-                    cachedBaseUrl = normalized
-                    cachedApiService = it
-                }
-            }
-        }
-    }
+    fun resolveApiService(): PingDuluApiService = apiService
 
     val taskRepository: TaskRepository = TaskRepositoryImpl(
         taskDao = appDatabase.taskDao(),

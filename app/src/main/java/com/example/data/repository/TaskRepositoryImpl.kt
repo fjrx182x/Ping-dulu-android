@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
 import com.example.data.local.AppDatabase
 import com.example.data.local.AppPreferences
 import com.example.data.local.TaskConverters
@@ -7,12 +8,11 @@ import com.example.data.local.TaskDao
 import com.example.data.local.TaskEntity
 import com.example.data.local.toDomain
 import com.example.data.remote.PingDuluApiService
-import com.example.data.remote.dto.ChecklistSyncDto
+import com.example.data.remote.dto.ChecklistStepToggleDto
 import com.example.data.remote.dto.CreateTaskRequestDto
 import com.example.data.remote.dto.LoginRequestDto
 import com.example.data.remote.dto.StageUpdateDto
-import com.example.data.remote.dto.TimerUpdateDto
-import com.example.data.remote.dto.toDto
+import com.example.data.remote.dto.TimerActionRequestDto
 import com.example.data.remote.dto.toEntity
 import com.example.domain.model.Assignee
 import com.example.domain.model.ChecklistItem
@@ -73,7 +73,6 @@ class TaskRepositoryImpl(
     override suspend fun initializeOfflineCache() {
         withContext(Dispatchers.IO) {
             appPreferences?.warmUpTokenCache()
-            database?.ensureSeeded()
         }
     }
 
@@ -114,9 +113,24 @@ class TaskRepositoryImpl(
             val entitiesToUpsert = remoteDtos
                 .filter { it.id !in failedUploadIds }
                 .map { it.toEntity(nowMillis = nowMillis) }
+            val activeRemoteIds = remoteDtos.map { it.id }
 
-            if (entitiesToUpsert.isNotEmpty()) {
-                taskDao.upsertTasks(entitiesToUpsert)
+            val reconcileBlock: suspend () -> Unit = {
+                if (activeRemoteIds.isEmpty() || activeRemoteIds.size > 900) {
+                    taskDao.deleteAllSyncedTasks()
+                } else {
+                    taskDao.deleteStaleSyncedTasks(activeRemoteIds)
+                }
+                if (entitiesToUpsert.isNotEmpty()) {
+                    taskDao.upsertTasks(entitiesToUpsert)
+                }
+            }
+
+            val db = database
+            if (db != null) {
+                db.withTransaction { reconcileBlock() }
+            } else {
+                reconcileBlock()
             }
 
             appPreferences?.updateLastSyncedAt(nowMillis)
@@ -151,11 +165,13 @@ class TaskRepositoryImpl(
         )
 
         // Best-effort remote sync; skip remote call for offline-only negative IDs until full sync
-        if (taskId > 0L) {
+        val toggledItem = updatedChecklist.firstOrNull { it.id == checklistId }
+        if (taskId > 0L && toggledItem != null) {
             tryRemote {
-                val response = apiServiceProvider().syncChecklist(
+                val response = apiServiceProvider().toggleChecklistStep(
                     id = taskId,
-                    body = ChecklistSyncDto(checklist = updatedChecklist.map { it.toDto() })
+                    stepId = checklistId,
+                    body = ChecklistStepToggleDto(isDone = if (toggledItem.isDone) 1 else 0)
                 )
                 if (response.isSuccessful) {
                     taskDao.markTaskSynced(taskId)
@@ -216,10 +232,12 @@ class TaskRepositoryImpl(
                 }
                 val timerResponse = api.updateTimer(
                     id = taskId,
-                    body = TimerUpdateDto(
-                        trackedSeconds = existing.trackedSeconds,
-                        isRunning = willRun,
-                        timerStartedAtMillis = if (willRun) now else null
+                    body = TimerActionRequestDto(
+                        action = if (willRun) {
+                            TimerActionRequestDto.ACTION_START
+                        } else {
+                            TimerActionRequestDto.ACTION_PAUSE
+                        }
                     )
                 )
                 if (stageSynced && timerResponse.isSuccessful) {
@@ -285,14 +303,14 @@ class TaskRepositoryImpl(
         if (taskId > 0L) {
             tryRemote {
                 val api = apiServiceProvider()
-                val timerOk = api.updateTimer(
-                    id = taskId,
-                    body = TimerUpdateDto(
-                        trackedSeconds = existing.trackedSeconds,
-                        isRunning = false,
-                        timerStartedAtMillis = null
-                    )
-                ).isSuccessful
+                val timerOk = if (existing.isTimerRunning) {
+                    api.updateTimer(
+                        id = taskId,
+                        body = TimerActionRequestDto(action = TimerActionRequestDto.ACTION_PAUSE)
+                    ).isSuccessful
+                } else {
+                    true
+                }
                 val stageOk = api.updateStage(
                     id = taskId,
                     body = StageUpdateDto(stage = Stage.DONE.apiValue)
@@ -310,38 +328,55 @@ class TaskRepositoryImpl(
         priority: Priority,
         epochDay: Long,
         location: String,
-        scheduledTimeMinutes: Int,
-        technicalNotes: String
+        scheduledTimeMinutes: Int?,
+        technicalNotes: String,
+        labels: List<String>
     ): Task = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val localId = -now // Negative ID denotes locally created offline task until server assigns ID
         val currentSession = appPreferences?.sessionFlow?.first()
+        val currentUserId = currentSession?.userId?.takeIf { it > 0L }
         val techName = currentSession?.technicianName ?: "Fajar"
         val techRole = currentSession?.technicianRole ?: "admin"
         val sequenceNumber = (taskDao.countTasks() + 1)
         val ticketCode = "${category.code}-$sequenceNumber"
         val cleanLocation = location.trim().ifBlank { "Lokasi Lapangan" }
-        val slaEndMinutes = (scheduledTimeMinutes + 120).coerceAtMost(23 * 60 + 59)
-        val slaLabel = String.format(
-            java.util.Locale.US,
-            "%02d:%02d WIB",
-            slaEndMinutes / 60,
-            slaEndMinutes % 60
-        )
+        val explicitLabels = labels.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val derivedLabels = if (explicitLabels.isNotEmpty()) {
+            explicitLabels
+        } else {
+            buildList {
+                val lower = title.lowercase()
+                if (lower.contains("wi-fi") || lower.contains("wifi") || lower.contains("access point")) {
+                    add("Wi-Fi")
+                }
+                add(
+                    when (category) {
+                        TicketCategory.NET -> "Jaringan"
+                        TicketCategory.SRV -> "Server"
+                        TicketCategory.HRD -> "Hardware"
+                        TicketCategory.SEC -> "Keamanan"
+                        TicketCategory.ONB -> "Onboarding"
+                    }
+                )
+                if (priority == Priority.P1_CRITICAL) add("Urgent")
+            }.distinct()
+        }
 
         val defaultChecklist = listOf(
             ChecklistItem(id = now + 1L, label = "Inspeksi fisik perangkat & konektor", isDone = false),
             ChecklistItem(id = now + 2L, label = "Pengujian fungsional & dokumentasi SPK", isDone = false)
         )
 
+        val cleanScheduledMinutes = scheduledTimeMinutes?.coerceIn(0, 23 * 60 + 59)
         val entity = TaskEntity(
             id = localId,
             ticketCode = ticketCode,
             title = title.trim(),
             category = category.code,
             scheduledDateEpochDay = epochDay,
-            scheduledTimeMinutes = scheduledTimeMinutes,
-            timeSlotLabel = DateEpochUtil.formatMinutesToTimeSlot(scheduledTimeMinutes),
+            scheduledTimeMinutes = cleanScheduledMinutes,
+            timeSlotLabel = DateEpochUtil.formatMinutesToTimeSlot(cleanScheduledMinutes),
             priority = priority.apiValue,
             stage = Stage.BACKLOG.apiValue,
             technicalNotes = technicalNotes.trim().ifBlank { "Tiket cepat dibuat dari aplikasi lapangan." },
@@ -349,10 +384,21 @@ class TaskRepositoryImpl(
             isTimerRunning = false,
             timerStartedAtMillis = null,
             location = cleanLocation,
-            slaTargetTime = slaLabel,
+            slaTargetTime = "",
             checklist = defaultChecklist,
-            assignees = listOf(Assignee(id = 3L, name = techName, role = techRole, isLead = true)),
+            assignees = listOf(
+                Assignee(
+                    id = currentUserId ?: 3L,
+                    name = techName,
+                    role = techRole,
+                    isLead = true
+                )
+            ),
             isSynced = false,
+            createdAtMillis = now,
+            dueDateMillis = null,
+            assignedToId = currentUserId,
+            labels = derivedLabels,
             updatedAtMillis = now
         )
 
@@ -371,7 +417,8 @@ class TaskRepositoryImpl(
                     stage = entity.stage,
                     location = entity.location,
                     technicalNotes = entity.technicalNotes,
-                    slaTargetTime = entity.slaTargetTime
+                    slaTargetTime = entity.slaTargetTime.ifBlank { null },
+                    labels = entity.labels.takeIf { it.isNotEmpty() }
                 )
             )
             if (response.isSuccessful) {
@@ -391,30 +438,42 @@ class TaskRepositoryImpl(
         savedEntity.toDomain()
     }
 
-    override suspend fun login(email: String, password: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun login(username: String, password: String): Result<String> = withContext(Dispatchers.IO) {
         try {
+            val cleanUsername = username.trim()
             val response = apiServiceProvider().login(
-                LoginRequestDto(email = email.trim(), password = password)
+                LoginRequestDto(username = cleanUsername, password = password)
             )
             val body = response.body()
             val token = body?.resolvedToken
             if (response.isSuccessful && !token.isNullOrBlank()) {
                 appPreferences?.saveAuthSession(
                     token = token,
-                    technicianName = body.user?.name ?: "Fajar",
-                    role = body.user?.role ?: "technician"
+                    technicianName = body.user?.resolvedName ?: cleanUsername.ifBlank { "Teknisi" },
+                    role = body.user?.role ?: "technician",
+                    userId = body.user?.id ?: 0L
                 )
                 Result.success(token)
             } else {
-                Result.failure(
-                    IllegalStateException("Login gagal (HTTP ${response.code()}). Periksa kredensial server PingDulu.")
-                )
+                val message = when (response.code()) {
+                    401, 403 -> "Username atau kata sandi salah (HTTP ${response.code()})."
+                    else -> "Login gagal (HTTP ${response.code()}). Periksa koneksi ke ping.fjrx.my.id."
+                }
+                Result.failure(IllegalStateException(message))
             }
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: Exception) {
-            Result.failure(e)
+            val detail = e.localizedMessage?.takeIf { it.isNotBlank() }
+                ?: "Periksa koneksi internet Anda."
+            Result.failure(
+                IllegalStateException("Gagal terhubung ke ping.fjrx.my.id ($detail)", e)
+            )
         }
+    }
+
+    override suspend fun clearSyncedCacheOnLogout() = withContext(Dispatchers.IO) {
+        taskDao.deleteAllSyncedTasks()
     }
 
     private suspend fun pushLocalEntityToServer(
@@ -434,7 +493,8 @@ class TaskRepositoryImpl(
                         stage = entity.stage,
                         location = entity.location,
                         technicalNotes = entity.technicalNotes,
-                        slaTargetTime = entity.slaTargetTime
+                        slaTargetTime = entity.slaTargetTime.ifBlank { null },
+                        labels = entity.labels.takeIf { it.isNotEmpty() }
                     )
                 )
                 if (createRes.isSuccessful) {
@@ -451,17 +511,22 @@ class TaskRepositoryImpl(
                 val stageRes = api.updateStage(entity.id, StageUpdateDto(stage = entity.stage))
                 val timerRes = api.updateTimer(
                     entity.id,
-                    TimerUpdateDto(
-                        trackedSeconds = entity.trackedSeconds,
-                        isRunning = entity.isTimerRunning,
-                        timerStartedAtMillis = entity.timerStartedAtMillis
+                    TimerActionRequestDto(
+                        action = if (entity.isTimerRunning) {
+                            TimerActionRequestDto.ACTION_START
+                        } else {
+                            TimerActionRequestDto.ACTION_PAUSE
+                        }
                     )
                 )
-                val checklistRes = api.syncChecklist(
-                    entity.id,
-                    ChecklistSyncDto(checklist = entity.checklist.map { it.toDto() })
-                )
-                stageRes.isSuccessful && timerRes.isSuccessful && checklistRes.isSuccessful
+                val checklistAllSynced = entity.checklist.all { item ->
+                    api.toggleChecklistStep(
+                        id = entity.id,
+                        stepId = item.id,
+                        body = ChecklistStepToggleDto(isDone = if (item.isDone) 1 else 0)
+                    ).isSuccessful
+                }
+                stageRes.isSuccessful && timerRes.isSuccessful && checklistAllSynced
             }
         } catch (ce: CancellationException) {
             throw ce

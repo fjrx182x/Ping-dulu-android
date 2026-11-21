@@ -37,7 +37,7 @@ data class TaskEntity(
     val scheduledDateEpochDay: Long,
 
     @ColumnInfo(name = "scheduled_time_minutes")
-    val scheduledTimeMinutes: Int,
+    val scheduledTimeMinutes: Int? = null,
 
     @ColumnInfo(name = "time_slot_label")
     val timeSlotLabel: String,
@@ -75,6 +75,18 @@ data class TaskEntity(
     @ColumnInfo(name = "is_synced")
     val isSynced: Boolean,
 
+    @ColumnInfo(name = "created_at", defaultValue = "0")
+    val createdAtMillis: Long = System.currentTimeMillis(),
+
+    @ColumnInfo(name = "due_date")
+    val dueDateMillis: Long? = null,
+
+    @ColumnInfo(name = "assigned_to_id")
+    val assignedToId: Long? = null,
+
+    @ColumnInfo(name = "labels_json", defaultValue = "'[]'")
+    val labels: List<String> = emptyList(),
+
     @ColumnInfo(name = "updated_at_millis")
     val updatedAtMillis: Long
 )
@@ -99,6 +111,10 @@ fun TaskEntity.toDomain(): Task {
         checklist = checklist,
         assignees = assignees,
         isSynced = isSynced,
+        createdAtMillis = if (createdAtMillis > 0L) createdAtMillis else updatedAtMillis,
+        dueDateMillis = dueDateMillis,
+        assignedToId = assignedToId,
+        labels = labels,
         updatedAtMillis = updatedAtMillis
     )
 }
@@ -123,6 +139,10 @@ fun Task.toEntity(): TaskEntity {
         checklist = checklist,
         assignees = assignees,
         isSynced = isSynced,
+        createdAtMillis = createdAtMillis,
+        dueDateMillis = dueDateMillis,
+        assignedToId = assignedToId,
+        labels = labels,
         updatedAtMillis = updatedAtMillis
     )
 }

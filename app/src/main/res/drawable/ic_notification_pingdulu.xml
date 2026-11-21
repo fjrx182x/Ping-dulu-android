@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Monochrome IT signal/bell silhouette for Android status bar notification -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2C10.9,2 10,2.9 10,4V4.29C7.12,5.14 5,7.82 5,11V16L3,18V19H21V18L19,16V11C19,7.82 16.88,5.14 14,4.29V4C14,2.9 13.1,2 12,2ZM12,22C13.1,22 14,21.1 14,20H10C10,21.1 10.9,22 12,22ZM12,8C13.66,8 15,9.34 15,11H13.5C13.5,10.17 12.83,9.5 12,9.5C11.17,9.5 10.5,10.17 10.5,11H9C9,9.34 10.34,8 12,8ZM12,11.25C12.69,11.25 13.25,11.81 13.25,12.5C13.25,13.19 12.69,13.75 12,13.75C11.31,13.75 10.75,13.19 10.75,12.5C10.75,11.81 11.31,11.25 12,11.25Z" />
+</vector>

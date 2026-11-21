@@ -1,16 +1,22 @@
 package com.example
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -46,6 +52,8 @@ import com.example.presentation.components.PingDuluNavigationRail
 import com.example.presentation.components.QuickAddTaskSheet
 import com.example.presentation.components.TaskDetailBottomSheet
 import com.example.presentation.kanban.KanbanBoardScreen
+import com.example.presentation.login.LoginScreen
+import com.example.presentation.login.SessionLoadingSplash
 import com.example.presentation.schedule.ScheduleScreen
 import com.example.presentation.schedule.ScheduleUiState
 import com.example.presentation.schedule.ScheduleViewModel
@@ -53,35 +61,42 @@ import com.example.presentation.schedule.ScheduleViewModelFactory
 import com.example.presentation.settings.SettingsSyncScreen
 import com.example.presentation.spk.SpkHistoryScreen
 import com.example.ui.theme.PingDuluFieldOpsTheme
+import com.example.util.NotificationHelper
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val appContainer by lazy { AppContainer.getInstance(applicationContext) }
+    private val deepLinkAgendaNonce = MutableStateFlow(0)
 
     private val scheduleViewModel: ScheduleViewModel by viewModels {
         ScheduleViewModelFactory(
             repository = appContainer.taskRepository,
             appPreferences = appContainer.appPreferences,
-            sseEventClient = appContainer.sseEventClient
+            sseEventClient = appContainer.sseEventClient,
+            notificationDispatcher = appContainer.notificationHelper
         )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleNotificationDeepLinkIntent(intent)
 
         setContent {
             val uiState by scheduleViewModel.uiState.collectAsStateWithLifecycle()
+            val agendaDeepLinkNonce by deepLinkAgendaNonce.collectAsStateWithLifecycle()
+            val useDarkSystemBars = uiState.isDarkTheme || !uiState.isSessionLoaded || !uiState.isLoggedIn
 
-            LaunchedEffect(uiState.isDarkTheme) {
+            LaunchedEffect(useDarkSystemBars) {
                 enableEdgeToEdge(
-                    statusBarStyle = if (uiState.isDarkTheme) {
+                    statusBarStyle = if (useDarkSystemBars) {
                         SystemBarStyle.dark(AndroidColor.TRANSPARENT)
                     } else {
                         SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
                     },
-                    navigationBarStyle = if (uiState.isDarkTheme) {
+                    navigationBarStyle = if (useDarkSystemBars) {
                         SystemBarStyle.dark(AndroidColor.TRANSPARENT)
                     } else {
                         SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
@@ -90,12 +105,48 @@ class MainActivity : ComponentActivity() {
             }
 
             PingDuluFieldOpsTheme(darkTheme = uiState.isDarkTheme) {
-                PingDuluAppRoot(
-                    uiState = uiState,
-                    viewModel = scheduleViewModel
-                )
+                when {
+                    !uiState.isSessionLoaded -> {
+                        SessionLoadingSplash()
+                    }
+                    !uiState.isLoggedIn -> {
+                        LoginScreen(
+                            isLoggingIn = uiState.isLoggingIn,
+                            errorMessage = uiState.loginErrorMessage,
+                            onClearError = scheduleViewModel::clearLoginError,
+                            onLogin = scheduleViewModel::loginToServer
+                        )
+                    }
+                    else -> {
+                        PingDuluAppRoot(
+                            uiState = uiState,
+                            viewModel = scheduleViewModel,
+                            agendaDeepLinkNonce = agendaDeepLinkNonce
+                        )
+                    }
+                }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationDeepLinkIntent(intent)
+    }
+
+    private fun handleNotificationDeepLinkIntent(targetIntent: Intent?) {
+        val taskId = targetIntent?.getLongExtra(NotificationHelper.EXTRA_TASK_ID, -1L) ?: -1L
+        if (taskId > 0L) {
+            targetIntent?.removeExtra(NotificationHelper.EXTRA_TASK_ID)
+            deepLinkAgendaNonce.value += 1
+            scheduleViewModel.openTaskFromNotification(taskId)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        scheduleViewModel.syncTodayHorizon()
     }
 
     override fun onStop() {
@@ -107,7 +158,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PingDuluAppRoot(
     uiState: ScheduleUiState,
-    viewModel: ScheduleViewModel
+    viewModel: ScheduleViewModel,
+    agendaDeepLinkNonce: Int
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -115,7 +167,36 @@ private fun PingDuluAppRoot(
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.AGENDA) }
     var showQuickAddSheet by rememberSaveable { mutableStateOf(false) }
     var activeToolkitTab by rememberSaveable { mutableStateOf<FieldToolkitTab?>(null) }
+    var hasPromptedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // Permission result handled gracefully; in-app Notification Center always remains active.
+    }
+
+    LaunchedEffect(uiState.isLoggedIn) {
+        if (uiState.isLoggedIn &&
+            !hasPromptedNotificationPermission &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        ) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                hasPromptedNotificationPermission = true
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    LaunchedEffect(agendaDeepLinkNonce) {
+        if (agendaDeepLinkNonce > 0) {
+            currentDestination = AppDestination.AGENDA
+        }
+    }
 
     // Return smoothly from secondary tabs to Agenda on system Back press
     BackHandler(enabled = currentDestination != AppDestination.AGENDA) {
@@ -213,7 +294,8 @@ private fun PingDuluAppRoot(
                                     onOpenMaps = { location -> openLocationInMaps(context, location) },
                                     onTriggerSync = viewModel::triggerSync,
                                     onToggleTheme = viewModel::toggleTheme,
-                                    onDismissNotifications = viewModel::dismissNotifications,
+                                    onMarkNotificationRead = viewModel::markNotificationRead,
+                                    onMarkAllNotificationsRead = viewModel::markAllNotificationsRead,
                                     onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
                                     onResetDrawerFilters = viewModel::resetDrawerFilters
                                 )
@@ -238,8 +320,6 @@ private fun PingDuluAppRoot(
                                 SettingsSyncScreen(
                                     uiState = uiState,
                                     onTriggerSync = viewModel::triggerSync,
-                                    onSaveServerUrl = viewModel::updateServerUrl,
-                                    onLogin = viewModel::loginToServer,
                                     onLogout = viewModel::logoutFromServer,
                                     onToggleTheme = viewModel::toggleTheme
                                 )
@@ -267,17 +347,20 @@ private fun PingDuluAppRoot(
 
     // Global Quick Add Ticket Bottom Sheet
     if (showQuickAddSheet) {
+        val todayLabel = uiState.scheduleDays.firstOrNull { it.isToday }?.fullDateLabel
+            ?: uiState.selectedFullDateLabel
         QuickAddTaskSheet(
-            selectedDateLabel = uiState.selectedFullDateLabel,
+            todayDateLabel = todayLabel,
             onDismiss = { showQuickAddSheet = false },
-            onSubmit = { title, category, priority, location, timeMinutes, notes ->
+            onSubmit = { title, category, priority, location, timeMinutes, notes, labels ->
                 viewModel.createQuickTask(
                     title = title,
                     category = category,
                     priority = priority,
                     location = location,
                     scheduledTimeMinutes = timeMinutes,
-                    technicalNotes = notes
+                    technicalNotes = notes,
+                    labels = labels
                 )
             }
         )
