@@ -65,6 +65,28 @@ object TaskPolicyHelper {
         return isAdmin || isAssigned
     }
 
+    /**
+     * Patch Ke-7 Policy:
+     * Admin or any currently assigned technician on an active (`stage != DONE`) ticket
+     * is permitted to delegate additional technicians (`PATCH /api/tasks/:id`) and add
+     * new checklist sub-steps (`POST /api/tasks/:id/checklist`).
+     */
+    fun canDelegateOrAddChecklist(
+        task: Task,
+        currentUserId: Long,
+        currentUserName: String,
+        currentUserRole: String
+    ): Boolean {
+        if (task.stage == Stage.DONE) return false
+        val isAdmin = currentUserRole.trim().equals("admin", ignoreCase = true)
+        if (isAdmin) return true
+        return isCurrentUserAssigned(
+            task = task,
+            currentUserId = currentUserId,
+            currentUserName = currentUserName
+        )
+    }
+
     fun unauthorizedReason(task: Task): String {
         if (isUnassigned(task)) {
             return "Tiket belum memiliki teknisi. Ketuk \"Ambil Task\" terlebih dahulu untuk mengambil alih pengerjaan."

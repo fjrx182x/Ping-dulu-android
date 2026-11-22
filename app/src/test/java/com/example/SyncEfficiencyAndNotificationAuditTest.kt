@@ -499,4 +499,8 @@ private class NoOpEfficiencyApiService : PingDuluApiService {
         Response.success(com.example.data.remote.dto.HolidayResponseDto(year = year))
     override suspend fun getCalendar(year: Int, month: Int): Response<com.example.data.remote.dto.CalendarAgendaResponseDto> =
         Response.success(com.example.data.remote.dto.CalendarAgendaResponseDto(year = year, month = month))
+    override suspend fun addChecklistStep(taskId: Long, body: com.example.data.remote.dto.AddChecklistStepRequestDto): Response<ResponseBody> =
+        Response.success(ResponseBody.create(null, "{}"))
+    override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<ResponseBody> =
+        Response.success(ResponseBody.create(null, "{}"))
 }

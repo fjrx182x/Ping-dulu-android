@@ -91,6 +91,12 @@ interface TaskRepository {
     suspend fun claimTask(taskId: Long): Result<Task> =
         Result.failure(UnsupportedOperationException("Not implemented"))
 
+    suspend fun addChecklistStep(taskId: Long, label: String): Result<com.example.domain.model.ChecklistItem> =
+        Result.failure(UnsupportedOperationException("Not implemented"))
+
+    suspend fun delegateTechnicians(taskId: Long, assigneeIds: List<Long>): Result<Task> =
+        Result.failure(UnsupportedOperationException("Not implemented"))
+
     suspend fun completeTaskWithPolicy(taskId: Long): Result<Unit> {
         markTaskCompleted(taskId)
         return Result.success(Unit)

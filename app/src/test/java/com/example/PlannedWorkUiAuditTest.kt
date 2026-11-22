@@ -211,7 +211,7 @@ class PlannedWorkUiAuditTest {
                     task = plannedHero,
                     liveSeconds = 300L,
                     onToggleTimer = {},
-                    onOpenMaps = {},
+                    onCompleteTask = {},
                     onOpenWorksheet = {}
                 )
             }
@@ -269,8 +269,7 @@ class PlannedWorkUiAuditTest {
                     onToggleChecklistItem = { _, _ -> },
                     onToggleTimer = {},
                     onMarkCompleted = {},
-                    onReopenTask = {},
-                    onOpenMaps = {}
+                    onReopenTask = {}
                 )
             }
         }

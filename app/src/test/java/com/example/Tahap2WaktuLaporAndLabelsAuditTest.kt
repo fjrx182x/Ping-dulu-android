@@ -143,7 +143,7 @@ class Tahap2WaktuLaporAndLabelsAuditTest {
                     task = task,
                     liveSeconds = 125L,
                     onToggleTimer = {},
-                    onOpenMaps = {},
+                    onCompleteTask = {},
                     onOpenWorksheet = {}
                 )
             }

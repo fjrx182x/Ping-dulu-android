@@ -2,10 +2,12 @@ package com.example.presentation.components
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -22,6 +24,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,7 +34,9 @@ import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.AccessTimeFilled
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.SwipeLeft
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -37,8 +44,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -52,21 +64,159 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.Task
+import com.example.domain.model.TaskPolicyHelper
 import com.example.ui.theme.AvatarEmerald
 import com.example.ui.theme.HeroNavyGradient
 import com.example.ui.theme.LeadStarAmber
 import com.example.ui.theme.PillDoneMint
+import com.example.ui.theme.PingDuluNavy
 import com.example.ui.theme.PingDuluNavyDark
 import com.example.ui.theme.StopwatchMint
 import com.example.ui.theme.SyncGreenBgDark
 import com.example.ui.theme.TicketCodeTextStyle
 
 @Composable
+fun HeroActiveJobCarousel(
+    tasks: List<Task>,
+    currentUserId: Long = 0L,
+    currentUserName: String = "",
+    currentUserRole: String = "admin",
+    onCompleteTask: (Long) -> Unit,
+    onOpenWorksheet: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (tasks.isEmpty()) {
+        EmptyHeroJobCard(modifier = modifier)
+        return
+    }
+
+    if (tasks.size == 1) {
+        val singleTask = tasks.first()
+        val canComplete = remember(singleTask, currentUserId, currentUserName, currentUserRole) {
+            TaskPolicyHelper.canCompleteOrDelete(
+                task = singleTask,
+                currentUserId = currentUserId,
+                currentUserName = currentUserName,
+                currentUserRole = currentUserRole
+            )
+        }
+        HeroActiveJobCard(
+            task = singleTask,
+            slideIndex = 0,
+            totalSlides = 1,
+            canComplete = canComplete,
+            onCompleteTask = onCompleteTask,
+            onOpenWorksheet = onOpenWorksheet,
+            modifier = modifier
+        )
+        return
+    }
+
+    val pagerState = rememberPagerState(pageCount = { tasks.size })
+
+    // Guard against page index drift if a task on the last slide is marked completed
+    LaunchedEffect(tasks.size) {
+        val maxIndex = (tasks.size - 1).coerceAtLeast(0)
+        if (pagerState.currentPage > maxIndex) {
+            pagerState.scrollToPage(maxIndex)
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            pageSpacing = 10.dp,
+            verticalAlignment = Alignment.Top,
+            key = { index -> tasks[index].id },
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .testTag("hero_active_job_pager")
+        ) { pageIndex ->
+            val pageTask = tasks[pageIndex]
+            val canComplete = remember(pageTask, currentUserId, currentUserName, currentUserRole) {
+                TaskPolicyHelper.canCompleteOrDelete(
+                    task = pageTask,
+                    currentUserId = currentUserId,
+                    currentUserName = currentUserName,
+                    currentUserRole = currentUserRole
+                )
+            }
+            HeroActiveJobCard(
+                task = pageTask,
+                slideIndex = pageIndex,
+                totalSlides = tasks.size,
+                canComplete = canComplete,
+                onCompleteTask = onCompleteTask,
+                onOpenWorksheet = onOpenWorksheet
+            )
+        }
+
+        // Slide Indicator Row (discoverable dots + slide counter)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("hero_pager_indicator"),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(tasks.size) { idx ->
+                    val isCurrent = pagerState.currentPage == idx
+                    val dotWidth by animateDpAsState(
+                        targetValue = if (isCurrent) 20.dp else 7.dp,
+                        animationSpec = spring(),
+                        label = "hero_dot_width"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .height(7.dp)
+                            .width(dotWidth)
+                            .clip(CircleShape)
+                            .background(
+                                if (isCurrent) PingDuluNavy
+                                else MaterialTheme.colorScheme.outlineVariant
+                            )
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SwipeLeft,
+                    contentDescription = "Geser untuk melihat task aktif lain",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = "Geser · ${pagerState.currentPage + 1}/${tasks.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun HeroActiveJobCard(
     task: Task?,
     liveSeconds: Long = 0L,
+    slideIndex: Int = 0,
+    totalSlides: Int = 1,
+    canComplete: Boolean = true,
     onToggleTimer: (Long) -> Unit = {},
-    onOpenMaps: (String) -> Unit,
+    onCompleteTask: (Long) -> Unit = {},
     onOpenWorksheet: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -76,6 +226,8 @@ fun HeroActiveJobCard(
         EmptyHeroJobCard(modifier = modifier)
         return
     }
+
+    var showCompleteConfirmDialog by remember(task.id) { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "hero_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -93,6 +245,12 @@ fun HeroActiveJobCard(
         animationSpec = tween(durationMillis = 300),
         label = "hero_checklist_progress"
     )
+
+    val statusBadgeText = if (totalSlides > 1) {
+        "SEDANG DIKERJAKAN ${slideIndex + 1} DARI $totalSlides"
+    } else {
+        "SEDANG DIKERJAKAN"
+    }
 
     Surface(
         modifier = modifier
@@ -136,13 +294,14 @@ fun HeroActiveJobCard(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Header Row: Live Status Badge + Ticket Code
+                // Header Row: Live Status Badge (with 1 dari N when >1) + Ticket Code
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
+                        modifier = Modifier.weight(1f, fill = false),
                         shape = RoundedCornerShape(8.dp),
                         color = Color.White.copy(alpha = 0.18f),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f))
@@ -160,16 +319,19 @@ fun HeroActiveJobCard(
                                     .background(StopwatchMint)
                             )
                             Text(
-                                text = "SEDANG DIKERJAKAN",
+                                text = statusBadgeText,
+                                modifier = Modifier.testTag("hero_slide_status_badge_${slideIndex + 1}"),
                                 color = Color.White,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 0.6.sp,
+                                letterSpacing = 0.5.sp,
                                 maxLines = 1,
-                                softWrap = false
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.width(8.dp))
 
                     Surface(
                         shape = RoundedCornerShape(8.dp),
@@ -341,17 +503,17 @@ fun HeroActiveJobCard(
 
                         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
 
-                        // Quick Action Buttons (Rute Lokasi & Lembar Kerja)
+                        // Quick Action Buttons (Lembar Kerja & Selesaikan — Rute Lokasi dihapus)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilledTonalButton(
-                                onClick = { onOpenMaps(task.location) },
+                                onClick = { onOpenWorksheet(task.id) },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("hero_maps_button"),
+                                    .height(48.dp)
+                                    .testTag("hero_worksheet_button"),
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                                 colors = ButtonDefaults.filledTonalButtonColors(
@@ -360,37 +522,9 @@ fun HeroActiveJobCard(
                                 )
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.Navigation,
-                                    contentDescription = "Buka rute lokasi di peta",
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Rute Lokasi",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-
-                            FilledTonalButton(
-                                onClick = { onOpenWorksheet(task.id) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .testTag("hero_worksheet_button"),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = AvatarEmerald,
-                                    contentColor = Color.White
-                                )
-                            ) {
-                                Icon(
                                     imageVector = Icons.AutoMirrored.Rounded.Assignment,
                                     contentDescription = "Buka lembar kerja checklist",
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
@@ -401,11 +535,110 @@ fun HeroActiveJobCard(
                                     softWrap = false
                                 )
                             }
+
+                            FilledTonalButton(
+                                onClick = { showCompleteConfirmDialog = true },
+                                enabled = canComplete,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("hero_complete_button_${task.id}"),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = AvatarEmerald,
+                                    contentColor = Color.White,
+                                    disabledContainerColor = Color.White.copy(alpha = 0.10f),
+                                    disabledContentColor = Color.White.copy(alpha = 0.45f)
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CheckCircle,
+                                    contentDescription = "Selesaikan tiket ini",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Selesaikan",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showCompleteConfirmDialog) {
+        val unfinishedChecklistCount = (task.totalChecklistCount - task.completedChecklistCount).coerceAtLeast(0)
+        AlertDialog(
+            onDismissRequest = { showCompleteConfirmDialog = false },
+            modifier = Modifier.testTag("hero_complete_confirm_dialog"),
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = null,
+                    tint = AvatarEmerald,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Selesaikan Tiket ${task.ticketCode}?",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = task.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Progres checklist saat ini: ${task.completedChecklistCount}/${task.totalChecklistCount} (${task.checklistProgressPercent}%).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (unfinishedChecklistCount > 0) {
+                        Text(
+                            text = "Masih ada $unfinishedChecklistCount langkah checklist yang belum dicentang. Tetap tandai tiket ini selesai?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCompleteConfirmDialog = false },
+                    modifier = Modifier.testTag("hero_complete_cancel_button")
+                ) {
+                    Text("Batal")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCompleteConfirmDialog = false
+                        onCompleteTask(task.id)
+                    },
+                    modifier = Modifier.testTag("hero_complete_confirm_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AvatarEmerald,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Ya, Selesaikan", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 }
 

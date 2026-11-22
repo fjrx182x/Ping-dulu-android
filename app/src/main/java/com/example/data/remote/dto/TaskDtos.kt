@@ -18,6 +18,8 @@ data class TaskResponseDto(
     @Json(name = "tasks")
     val tasks: List<TaskDto>? = null
 ) {
+    fun hasExplicitTaskList(): Boolean = data != null || tasks != null
+
     fun resolvedTasks(): List<TaskDto> = data ?: tasks ?: emptyList()
 }
 
@@ -432,7 +434,13 @@ data class CreateTaskResponseDto(
     ): TaskEntity? {
         data?.takeIf { it.id > 0L }?.let {
             val mapped = it.toEntity(nowMillis = nowMillis)
+            val hasServerEpoch = it.scheduledDateEpochDay != null && it.scheduledDateEpochDay > 15_000L
             return mapped.copy(
+                scheduledDateEpochDay = if (hasServerEpoch) mapped.scheduledDateEpochDay else fallbackLocal.scheduledDateEpochDay,
+                scheduledTimeMinutes = it.scheduledTimeMinutes ?: fallbackLocal.scheduledTimeMinutes,
+                timeSlotLabel = if (it.scheduledTimeMinutes != null) mapped.timeSlotLabel else fallbackLocal.timeSlotLabel,
+                location = if (!it.location.isNullOrBlank()) mapped.location else fallbackLocal.location,
+                technicalNotes = if (!it.technicalNotes.isNullOrBlank()) mapped.technicalNotes else fallbackLocal.technicalNotes,
                 clientSyncId = mapped.clientSyncId ?: fallbackLocal.clientSyncId,
                 createdById = mapped.createdById ?: fallbackLocal.createdById,
                 createdByName = mapped.createdByName ?: fallbackLocal.createdByName,
@@ -442,7 +450,13 @@ data class CreateTaskResponseDto(
         }
         task?.takeIf { it.id > 0L }?.let {
             val mapped = it.toEntity(nowMillis = nowMillis)
+            val hasServerEpoch = it.scheduledDateEpochDay != null && it.scheduledDateEpochDay > 15_000L
             return mapped.copy(
+                scheduledDateEpochDay = if (hasServerEpoch) mapped.scheduledDateEpochDay else fallbackLocal.scheduledDateEpochDay,
+                scheduledTimeMinutes = it.scheduledTimeMinutes ?: fallbackLocal.scheduledTimeMinutes,
+                timeSlotLabel = if (it.scheduledTimeMinutes != null) mapped.timeSlotLabel else fallbackLocal.timeSlotLabel,
+                location = if (!it.location.isNullOrBlank()) mapped.location else fallbackLocal.location,
+                technicalNotes = if (!it.technicalNotes.isNullOrBlank()) mapped.technicalNotes else fallbackLocal.technicalNotes,
                 clientSyncId = mapped.clientSyncId ?: fallbackLocal.clientSyncId,
                 createdById = mapped.createdById ?: fallbackLocal.createdById,
                 createdByName = mapped.createdByName ?: fallbackLocal.createdByName,

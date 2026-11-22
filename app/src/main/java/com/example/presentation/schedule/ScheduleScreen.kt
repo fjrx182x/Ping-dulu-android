@@ -59,7 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.Stage
-import com.example.presentation.components.HeroActiveJobCard
+import com.example.presentation.components.HeroActiveJobCarousel
 import com.example.presentation.components.Horizon7DayStrip
 import com.example.presentation.components.NotificationCenterSheet
 import com.example.presentation.components.StatusFilterPillRow
@@ -79,8 +79,7 @@ fun ScheduleScreen(
     onStatusFilterSelected: (StatusFilter) -> Unit,
     onLayoutModeSelected: (LayoutMode) -> Unit,
     onTaskClicked: (Long) -> Unit,
-    onToggleHeroTimer: (Long) -> Unit,
-    onOpenMaps: (String) -> Unit,
+    onCompleteHeroTask: (Long) -> Unit,
     onTriggerSync: () -> Unit,
     onToggleTheme: () -> Unit,
     onMarkNotificationRead: (String) -> Unit,
@@ -134,16 +133,22 @@ fun ScheduleScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 1. Hero Active Job Card
+                // 1. Hero Active Job Carousel (single card or multi-task slide)
                 item(
                     key = "hero_section",
                     span = { GridItemSpan(maxLineSpan) }
                 ) {
-                    HeroActiveJobCard(
-                        task = uiState.activeHeroTask,
-                        liveSeconds = uiState.liveHeroSeconds,
-                        onToggleTimer = onToggleHeroTimer,
-                        onOpenMaps = onOpenMaps,
+                    val carouselTasks = if (uiState.activeHeroTasks.isNotEmpty()) {
+                        uiState.activeHeroTasks
+                    } else {
+                        listOfNotNull(uiState.activeHeroTask)
+                    }
+                    HeroActiveJobCarousel(
+                        tasks = carouselTasks,
+                        currentUserId = uiState.currentUserId,
+                        currentUserName = uiState.technicianName,
+                        currentUserRole = uiState.technicianRole,
+                        onCompleteTask = onCompleteHeroTask,
                         onOpenWorksheet = onTaskClicked
                     )
                 }

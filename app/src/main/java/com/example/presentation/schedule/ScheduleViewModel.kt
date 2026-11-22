@@ -10,6 +10,9 @@ import com.example.data.local.UserSessionPrefs
 import com.example.data.remote.SseConnectionState
 import com.example.data.remote.SseEvent
 import com.example.data.remote.SseEventClient
+import com.example.domain.model.ActiveTaskLimitExceededException
+import com.example.domain.model.ActiveTaskLimitPolicy
+import com.example.domain.model.ActiveTaskLimitWarning
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.FieldTechnician
 import com.example.domain.model.IndonesianHolidayCatalog
@@ -54,6 +57,8 @@ class ScheduleViewModel(
     private val enableSseStream: Boolean = true,
     private val enableAutoSyncRetry: Boolean = false,
     private val initialUserIdForTesting: Long = 0L,
+    private val initialTechnicianNameForTesting: String = "Fajar",
+    private val initialTechnicianRoleForTesting: String = "admin",
     private val clockMillisProvider: () -> Long = { System.currentTimeMillis() }
 ) : ViewModel() {
 
@@ -64,6 +69,7 @@ class ScheduleViewModel(
     private val selectedStatusFilterFlow = MutableStateFlow(StatusFilter.ALL)
     private val layoutModeFlow = MutableStateFlow(LayoutMode.GRID_2_COLUMN)
     private val selectedSheetTaskIdFlow = MutableStateFlow<Long?>(null)
+    private val activeTaskLimitWarningFlow = MutableStateFlow<ActiveTaskLimitWarning?>(null)
     private val pendingNotificationTaskIdFlow = MutableStateFlow<Long?>(null)
     private val isSyncingFlow = MutableStateFlow(false)
     private val isLoggingInFlow = MutableStateFlow(false)
@@ -156,7 +162,11 @@ class ScheduleViewModel(
                 started = SharingStarted.WhileSubscribed(5_000L),
                 initialValue = LoadedSession(
                     isLoaded = appPreferences == null,
-                    prefs = UserSessionPrefs(userId = initialUserIdForTesting)
+                    prefs = UserSessionPrefs(
+                        userId = initialUserIdForTesting,
+                        technicianName = initialTechnicianNameForTesting,
+                        technicianRole = initialTechnicianRoleForTesting
+                    )
                 )
             )
 
@@ -187,7 +197,8 @@ class ScheduleViewModel(
         val layoutMode: LayoutMode,
         val sheetTaskId: Long?,
         val notificationState: NotificationStateBundle,
-        val drawerFilters: DrawerFilterBundle
+        val drawerFilters: DrawerFilterBundle,
+        val activeTaskLimitWarning: ActiveTaskLimitWarning?
     )
 
     private data class SyncAndSessionBundle(
@@ -249,8 +260,9 @@ class ScheduleViewModel(
     private val uiControlFlow = combine(
         coreUiControlFlow,
         drawerFilterFlow,
-        notificationStateFlow
-    ) { core, drawer, notificationState ->
+        notificationStateFlow,
+        activeTaskLimitWarningFlow
+    ) { core, drawer, notificationState, limitWarning ->
         UiControlBundle(
             baseEpochDay = core.baseEpochDay,
             selectedEpochDay = core.selectedEpochDay,
@@ -258,7 +270,8 @@ class ScheduleViewModel(
             layoutMode = core.layoutMode,
             sheetTaskId = core.sheetTaskId,
             notificationState = notificationState,
-            drawerFilters = drawer
+            drawerFilters = drawer,
+            activeTaskLimitWarning = limitWarning
         )
     }
 
@@ -364,9 +377,17 @@ class ScheduleViewModel(
             horizonEpochDays = horizonEpochDays,
             holidaysByEpochDay = calendarBundle.holidaysByEpochDay
         )
-        val dayTasks = scopedTasks.filter { it.scheduledDateEpochDay == controls.selectedEpochDay }
+        val dayTasks = scopedTasks.filter { task ->
+            if (controls.selectedEpochDay == currentBaseEpochDay) {
+                task.scheduledDateEpochDay == currentBaseEpochDay ||
+                    (task.scheduledDateEpochDay < currentBaseEpochDay && task.stage != Stage.DONE)
+            } else {
+                task.scheduledDateEpochDay == controls.selectedEpochDay
+            }
+        }
             .sortedWith(
-                compareBy<Task> { it.scheduledTimeMinutes ?: 9999 }
+                compareBy<Task> { it.scheduledDateEpochDay }
+                    .thenBy { it.scheduledTimeMinutes ?: 9999 }
                     .thenBy { it.priority.sortRank }
                     .thenByDescending { it.createdAtMillis }
                     .thenByDescending { it.id }
@@ -414,6 +435,13 @@ class ScheduleViewModel(
         )
         val unreadNotificationCount = notifications.count { !it.isRead }
 
+        val activeHeroTasks = ActiveTaskLimitPolicy.selectActiveHeroTasks(
+            scopedTasks = scopedTasks,
+            currentUserId = currentUserId,
+            currentUserName = techName
+        )
+        val resolvedActiveHero = activeHeroTasks.firstOrNull() ?: activeHero
+
         ScheduleUiState(
             currentUserId = currentUserId,
             technicianName = techName,
@@ -427,8 +455,10 @@ class ScheduleViewModel(
             ),
             selectedFullDateLabel = DateEpochUtil.formatFullDate(controls.selectedEpochDay),
             scheduleDays = scheduleDays,
-            activeHeroTask = activeHero,
-            liveHeroSeconds = activeHero?.trackedSeconds ?: 0L,
+            activeHeroTask = resolvedActiveHero,
+            activeHeroTasks = activeHeroTasks,
+            activeTaskLimitWarning = controls.activeTaskLimitWarning,
+            liveHeroSeconds = resolvedActiveHero?.trackedSeconds ?: 0L,
             allTasks = allTasks,
             filteredTasks = filtered,
             unsyncedTasks = unsyncedTasks,
@@ -1157,12 +1187,109 @@ class ScheduleViewModel(
         }
     }
 
+    fun addChecklistStep(taskId: Long, label: String) {
+        val cleanLabel = label.trim()
+        if (cleanLabel.isEmpty()) return
+        viewModelScope.launch {
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val result = repository.addChecklistStep(taskId, cleanLabel)
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            result.fold(
+                onSuccess = { step ->
+                    syncMessageFlow.value = "Langkah checklist \"${step.label}\" ditambahkan."
+                    refreshTaskActivitiesIfOpen(taskId)
+                },
+                onFailure = { err ->
+                    syncMessageFlow.value = err.localizedMessage
+                        ?: "Gagal menambahkan langkah checklist."
+                }
+            )
+        }
+    }
+
+    fun delegateTechnicians(taskId: Long, assigneeIds: List<Long>) {
+        val cleanIds = assigneeIds.filter { it > 0L }.distinct()
+        if (cleanIds.isEmpty()) return
+        viewModelScope.launch {
+            val allTasks = uiState.value.allTasks.ifEmpty {
+                runCatching { repository.observeAllTasks().first() }.getOrDefault(emptyList())
+            }
+            val currentTask = allTasks.firstOrNull { it.id == taskId }
+            val existingAssigneeIds = currentTask?.assignees?.map { it.id }?.toSet().orEmpty()
+            val newlyAddedIds = cleanIds.filter { it !in existingAssigneeIds }
+            val session = sessionStateFlow.value.prefs
+
+            // Enforce 5 active task WIP limit on newly delegated technicians (excluding this task)
+            if (newlyAddedIds.isNotEmpty() && currentTask?.stage != Stage.DONE) {
+                val limitWarning = ActiveTaskLimitPolicy.checkDelegationLimit(
+                    allTasks = allTasks,
+                    targetAssigneeIds = newlyAddedIds,
+                    availableTechnicians = uiState.value.availableTechnicians,
+                    currentUserId = session.userId,
+                    currentUserName = session.technicianName.ifBlank { "Fajar" },
+                    currentUserRole = session.technicianRole.ifBlank { "admin" },
+                    excludeTaskId = taskId
+                )
+                if (limitWarning != null) {
+                    activeTaskLimitWarningFlow.value = limitWarning
+                    return@launch
+                }
+            }
+
+            markLocalMutationForEchoSuppression()
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
+            val result = repository.delegateTechnicians(taskId, cleanIds)
+            detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = false)
+            result.fold(
+                onSuccess = { updated ->
+                    val names = updated.assignees.joinToString(", ") { it.name }
+                    syncMessageFlow.value = "Tim teknisi diperbarui: $names"
+                    refreshTaskActivitiesIfOpen(taskId)
+                },
+                onFailure = { err ->
+                    if (err is ActiveTaskLimitExceededException) {
+                        activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(err)
+                    } else {
+                        val errMsg = err.localizedMessage ?: "Gagal mendelegasikan teknisi."
+                        if (ActiveTaskLimitPolicy.isClaimLimitExceededPayload(errMsg)) {
+                            activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(
+                                ActiveTaskLimitPolicy.parseServerLimitException(errMsg, isDelegationContext = true)
+                            )
+                        } else {
+                            syncMessageFlow.value = errMsg
+                        }
+                    }
+                }
+            )
+        }
+    }
+
     fun toggleTaskTimer(taskId: Long) {
         workTask(taskId)
     }
 
+    fun dismissActiveTaskLimitWarning() {
+        activeTaskLimitWarningFlow.value = null
+    }
+
     fun workTask(taskId: Long) {
         viewModelScope.launch {
+            val allTasks = uiState.value.allTasks.ifEmpty {
+                runCatching { repository.observeAllTasks().first() }.getOrDefault(emptyList())
+            }
+            val session = sessionStateFlow.value.prefs
+            val limitWarning = ActiveTaskLimitPolicy.checkSelfTakeOrWorkLimit(
+                allTasks = allTasks,
+                currentUserId = session.userId,
+                currentUserName = session.technicianName.ifBlank { "Fajar" },
+                targetTaskId = taskId
+            )
+            if (limitWarning != null) {
+                activeTaskLimitWarningFlow.value = limitWarning
+                return@launch
+            }
+
             markLocalMutationForEchoSuppression()
             detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
             val result = repository.workTask(taskId)
@@ -1173,7 +1300,18 @@ class ScheduleViewModel(
                     refreshTaskActivitiesIfOpen(taskId)
                 },
                 onFailure = { err ->
-                    syncMessageFlow.value = err.localizedMessage ?: "Gagal memulai pengerjaan tiket."
+                    if (err is ActiveTaskLimitExceededException) {
+                        activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(err)
+                    } else {
+                        val errMsg = err.localizedMessage ?: "Gagal memulai pengerjaan tiket."
+                        if (ActiveTaskLimitPolicy.isClaimLimitExceededPayload(errMsg)) {
+                            activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(
+                                ActiveTaskLimitPolicy.parseServerLimitException(errMsg, isDelegationContext = false)
+                            )
+                        } else {
+                            syncMessageFlow.value = errMsg
+                        }
+                    }
                 }
             )
         }
@@ -1181,6 +1319,21 @@ class ScheduleViewModel(
 
     fun claimTask(taskId: Long) {
         viewModelScope.launch {
+            val allTasks = uiState.value.allTasks.ifEmpty {
+                runCatching { repository.observeAllTasks().first() }.getOrDefault(emptyList())
+            }
+            val session = sessionStateFlow.value.prefs
+            val limitWarning = ActiveTaskLimitPolicy.checkSelfTakeOrWorkLimit(
+                allTasks = allTasks,
+                currentUserId = session.userId,
+                currentUserName = session.technicianName.ifBlank { "Fajar" },
+                targetTaskId = taskId
+            )
+            if (limitWarning != null) {
+                activeTaskLimitWarningFlow.value = limitWarning
+                return@launch
+            }
+
             markLocalMutationForEchoSuppression()
             detailWorkspaceFlow.value = detailWorkspaceFlow.value.copy(isUpdatingAction = true)
             val result = repository.claimTask(taskId)
@@ -1191,7 +1344,18 @@ class ScheduleViewModel(
                     refreshTaskActivitiesIfOpen(taskId)
                 },
                 onFailure = { err ->
-                    syncMessageFlow.value = err.localizedMessage ?: "Gagal mengambil tiket."
+                    if (err is ActiveTaskLimitExceededException) {
+                        activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(err)
+                    } else {
+                        val errMsg = err.localizedMessage ?: "Gagal mengambil tiket."
+                        if (ActiveTaskLimitPolicy.isClaimLimitExceededPayload(errMsg)) {
+                            activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(
+                                ActiveTaskLimitPolicy.parseServerLimitException(errMsg, isDelegationContext = false)
+                            )
+                        } else {
+                            syncMessageFlow.value = errMsg
+                        }
+                    }
                 }
             )
         }
@@ -1220,6 +1384,22 @@ class ScheduleViewModel(
 
     fun updateTaskStage(taskId: Long, newStage: Stage) {
         viewModelScope.launch {
+            if (newStage != Stage.DONE) {
+                val allTasks = uiState.value.allTasks.ifEmpty {
+                    runCatching { repository.observeAllTasks().first() }.getOrDefault(emptyList())
+                }
+                val session = sessionStateFlow.value.prefs
+                val limitWarning = ActiveTaskLimitPolicy.checkSelfTakeOrWorkLimit(
+                    allTasks = allTasks,
+                    currentUserId = session.userId,
+                    currentUserName = session.technicianName.ifBlank { "Fajar" },
+                    targetTaskId = taskId
+                )
+                if (limitWarning != null) {
+                    activeTaskLimitWarningFlow.value = limitWarning
+                    return@launch
+                }
+            }
             markLocalMutationForEchoSuppression()
             repository.updateTaskStage(taskId, newStage)
             refreshTaskActivitiesIfOpen(taskId)
@@ -1322,13 +1502,30 @@ class ScheduleViewModel(
         val isPlannedFuture = resolvedEpochDay > todayEpochDay
         val cleanScheduledMinutes = scheduledTimeMinutes?.coerceIn(0, 23 * 60 + 59)
 
-        baseEpochDayFlow.value = todayEpochDay
-        if (!isPlannedFuture) {
-            selectedEpochDayFlow.value = todayEpochDay
-        }
-        pendingSelfCreatedTitles.add(cleanTitle)
-        markLocalMutationForEchoSuppression()
         viewModelScope.launch {
+            val allTasks = uiState.value.allTasks.ifEmpty {
+                runCatching { repository.observeAllTasks().first() }.getOrDefault(emptyList())
+            }
+            val session = sessionStateFlow.value.prefs
+            val limitWarning = ActiveTaskLimitPolicy.checkDelegationLimit(
+                allTasks = allTasks,
+                targetAssigneeIds = assigneeIds,
+                availableTechnicians = uiState.value.availableTechnicians,
+                currentUserId = session.userId,
+                currentUserName = session.technicianName.ifBlank { "Fajar" },
+                currentUserRole = session.technicianRole.ifBlank { "admin" }
+            )
+            if (limitWarning != null) {
+                activeTaskLimitWarningFlow.value = limitWarning
+                return@launch
+            }
+
+            baseEpochDayFlow.value = todayEpochDay
+            if (!isPlannedFuture) {
+                selectedEpochDayFlow.value = todayEpochDay
+            }
+            pendingSelfCreatedTitles.add(cleanTitle)
+            markLocalMutationForEchoSuppression()
             try {
                 val created = repository.createQuickTask(
                     title = cleanTitle,
@@ -1368,6 +1565,8 @@ class ScheduleViewModel(
                         "$baseSummary (tersimpan lokal, akan sync otomatis saat online)."
                     }
                 }
+            } catch (limitEx: ActiveTaskLimitExceededException) {
+                activeTaskLimitWarningFlow.value = ActiveTaskLimitPolicy.warningFromException(limitEx)
             } finally {
                 pendingSelfCreatedTitles.remove(cleanTitle)
             }
@@ -1587,8 +1786,15 @@ class ScheduleViewModel(
         holidaysByEpochDay: Map<Long, NationalHoliday>
     ): List<DayHorizonModel> {
         val groupedByDay = allTasks.groupBy { it.scheduledDateEpochDay }
+        val overdueActiveTasks = allTasks.filter {
+            it.scheduledDateEpochDay < baseEpochDay && it.stage != Stage.DONE
+        }
         return horizonEpochDays.map { epochDay ->
-            val dayTasks = groupedByDay[epochDay].orEmpty()
+            val dayTasks = if (epochDay == baseEpochDay) {
+                groupedByDay[epochDay].orEmpty() + overdueActiveTasks
+            } else {
+                groupedByDay[epochDay].orEmpty()
+            }
             val holiday = holidaysByEpochDay[epochDay]
             val indicator = when {
                 dayTasks.isEmpty() -> DayIndicatorType.NONE

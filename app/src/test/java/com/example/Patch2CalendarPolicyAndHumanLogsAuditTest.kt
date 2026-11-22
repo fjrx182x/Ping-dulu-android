@@ -565,6 +565,10 @@ private class Patch2FakeApiService(
     override suspend fun getHolidays(year: Int): Response<HolidayResponseDto> = onGetHolidays(year)
     override suspend fun getCalendar(year: Int, month: Int): Response<CalendarAgendaResponseDto> =
         Response.success(CalendarAgendaResponseDto(year = year, month = month))
+    override suspend fun addChecklistStep(taskId: Long, body: com.example.data.remote.dto.AddChecklistStepRequestDto): Response<ResponseBody> =
+        Response.success("{}".toResponseBody())
+    override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<ResponseBody> =
+        Response.success("{}".toResponseBody())
 }
 
 private class Patch2InMemoryTaskDao(initial: List<TaskEntity>) : TaskDao {

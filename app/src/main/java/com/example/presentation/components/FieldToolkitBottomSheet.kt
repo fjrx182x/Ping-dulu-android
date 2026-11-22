@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Router
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
@@ -84,6 +85,7 @@ import kotlinx.coroutines.launch
 
 enum class FieldToolkitTab(val label: String) {
     PING("Ping"),
+    SPEEDTEST("Speed Test"),
     SUBNET("Subnet"),
     RJ45_POE("RJ45 & PoE")
 }
@@ -93,6 +95,7 @@ enum class FieldToolkitTab(val label: String) {
 fun FieldToolkitBottomSheet(
     initialTab: FieldToolkitTab,
     serverHostHint: String,
+    authToken: String? = null,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -133,6 +136,7 @@ fun FieldToolkitBottomSheet(
                         Icon(
                             imageVector = when (selectedTab) {
                                 FieldToolkitTab.PING -> Icons.Rounded.NetworkCheck
+                                FieldToolkitTab.SPEEDTEST -> Icons.Rounded.Speed
                                 FieldToolkitTab.SUBNET -> Icons.Rounded.Lan
                                 FieldToolkitTab.RJ45_POE -> Icons.Rounded.Cable
                             },
@@ -148,7 +152,7 @@ fun FieldToolkitBottomSheet(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Utilitas jaringan offline-ready untuk teknisi lapangan",
+                            text = "Utilitas jaringan & LAN/offline untuk teknisi lapangan",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -166,7 +170,7 @@ fun FieldToolkitBottomSheet(
                 }
             }
 
-            // Segmented Tab Switcher
+            // Horizontally Scrollable 4-Tab Pill Switcher (prevents crowding on 360dp compact screens)
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -175,6 +179,7 @@ fun FieldToolkitBottomSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -182,27 +187,26 @@ fun FieldToolkitBottomSheet(
                         val active = selectedTab == tab
                         val tabTag = when (tab) {
                             FieldToolkitTab.PING -> "toolkit_tab_ping"
+                            FieldToolkitTab.SPEEDTEST -> "toolkit_tab_speedtest"
                             FieldToolkitTab.SUBNET -> "toolkit_tab_subnet"
                             FieldToolkitTab.RJ45_POE -> "toolkit_tab_rj45_poe"
                         }
                         val tabIcon = when (tab) {
                             FieldToolkitTab.PING -> Icons.Rounded.NetworkCheck
+                            FieldToolkitTab.SPEEDTEST -> Icons.Rounded.Speed
                             FieldToolkitTab.SUBNET -> Icons.Rounded.Lan
                             FieldToolkitTab.RJ45_POE -> Icons.Rounded.Cable
                         }
                         Surface(
                             onClick = { selectedTab = tab },
                             modifier = Modifier
-                                .weight(1f)
-                                .defaultMinSize(minHeight = 44.dp)
+                                .defaultMinSize(minWidth = 84.dp, minHeight = 48.dp)
                                 .testTag(tabTag),
                             shape = RoundedCornerShape(11.dp),
                             color = if (active) PingDuluNavy else Color.Transparent
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 6.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -210,9 +214,9 @@ fun FieldToolkitBottomSheet(
                                     imageVector = tabIcon,
                                     contentDescription = null,
                                     tint = if (active) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.size(4.dp))
+                                Spacer(modifier = Modifier.size(6.dp))
                                 Text(
                                     text = tab.label,
                                     style = MaterialTheme.typography.labelMedium,
@@ -229,6 +233,10 @@ fun FieldToolkitBottomSheet(
 
             when (selectedTab) {
                 FieldToolkitTab.PING -> PingProbeSection(serverHostHint = serverHostHint)
+                FieldToolkitTab.SPEEDTEST -> SpeedTestSection(
+                    serverHostHint = serverHostHint,
+                    authToken = authToken
+                )
                 FieldToolkitTab.SUBNET -> SubnetCalculatorSection()
                 FieldToolkitTab.RJ45_POE -> Rj45PoeReferenceSection()
             }

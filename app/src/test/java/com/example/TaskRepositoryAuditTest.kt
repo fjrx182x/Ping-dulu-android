@@ -605,6 +605,12 @@ private class RecordingPingDuluApiService(
 
     override suspend fun getCalendar(year: Int, month: Int): Response<com.example.data.remote.dto.CalendarAgendaResponseDto> =
         Response.success(com.example.data.remote.dto.CalendarAgendaResponseDto(year = year, month = month))
+
+    override suspend fun addChecklistStep(taskId: Long, body: com.example.data.remote.dto.AddChecklistStepRequestDto): Response<okhttp3.ResponseBody> =
+        Response.success("{}".toResponseBody())
+
+    override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<okhttp3.ResponseBody> =
+        Response.success("{}".toResponseBody())
 }
 
 private class FailingPingDuluApiService : PingDuluApiService {
@@ -649,6 +655,8 @@ private class FailingPingDuluApiService : PingDuluApiService {
     override suspend fun deleteTask(taskId: Long): Response<okhttp3.ResponseBody> = throw IOException("Offline")
     override suspend fun getHolidays(year: Int): Response<com.example.data.remote.dto.HolidayResponseDto> = throw IOException("Offline")
     override suspend fun getCalendar(year: Int, month: Int): Response<com.example.data.remote.dto.CalendarAgendaResponseDto> = throw IOException("Offline")
+    override suspend fun addChecklistStep(taskId: Long, body: com.example.data.remote.dto.AddChecklistStepRequestDto): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<okhttp3.ResponseBody> = throw IOException("Offline")
 }
 
 private class InMemoryTaskDao(initial: List<TaskEntity>) : TaskDao {

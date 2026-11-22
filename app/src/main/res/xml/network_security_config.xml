@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext HTTP for local LAN/intranet Speed Test servers (e.g. http://192.168.x.x:3001) -->
+    <base-config cleartextTrafficPermitted="true" />
+
+    <!-- Strictly enforce HTTPS for the production PingDulu domain -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">ping.fjrx.my.id</domain>
+    </domain-config>
+</network-security-config>

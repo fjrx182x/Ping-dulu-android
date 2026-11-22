@@ -97,3 +97,20 @@ val AvatarSky = Color(0xFF0284C7)
 val AvatarViolet = Color(0xFF7C3AED)
 val AvatarTeal = Color(0xFF0D9488)
 val LeadStarAmber = Color(0xFFFBBF24)
+
+// Patch Ke-7: CBN / Ookla Speed Test Palette
+val CbnCobaltBlue = Color(0xFF2563EB)
+val CbnCobaltLight = Color(0xFF3B82F6)
+val CbnSparklineCyan = Color(0xFF38BDF8)
+val CbnTrackSlate = Color(0xFF1E293B)
+val CbnDeepSlate = Color(0xFF0F172A)
+val CbnSlateBorder = Color(0xFF334155)
+val CbnSlateMuted = Color(0xFF94A3B8)
+
+// Patch Ke-7: Amber Glow "Kalem Dulu!" Dialog Palette
+val KalemAmberGlow = Color(0xFFF59E0B)
+val KalemAmberBright = Color(0xFFFBBF24)
+val KalemAmberSoftText = Color(0xFFFEF3C7)
+val KalemDarkCard = Color(0xFF0F172A)
+val KalemDarkInner = Color(0xFF1E293B)
+

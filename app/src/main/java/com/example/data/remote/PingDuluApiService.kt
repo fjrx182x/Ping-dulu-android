@@ -1,5 +1,6 @@
 package com.example.data.remote
 
+import com.example.data.remote.dto.AddChecklistStepRequestDto
 import com.example.data.remote.dto.AddCommentRequestDto
 import com.example.data.remote.dto.CalendarAgendaResponseDto
 import com.example.data.remote.dto.ChecklistStepToggleDto
@@ -9,6 +10,7 @@ import com.example.data.remote.dto.CreateTaskResponseDto
 import com.example.data.remote.dto.HolidayResponseDto
 import com.example.data.remote.dto.LoginRequestDto
 import com.example.data.remote.dto.LoginResponseDto
+import com.example.data.remote.dto.SpeedTestRecordRequestDto
 import com.example.data.remote.dto.StageUpdateDto
 import com.example.data.remote.dto.TaskPatchRequestDto
 import com.example.data.remote.dto.TaskResponseDto
@@ -70,6 +72,12 @@ interface PingDuluApiService {
         @Path("id") id: Long,
         @Body body: TimerActionRequestDto
     ): Response<Unit>
+
+    @POST("api/tasks/{id}/checklist")
+    suspend fun addChecklistStep(
+        @Path("id") taskId: Long,
+        @Body body: AddChecklistStepRequestDto
+    ): Response<ResponseBody>
 
     @PATCH("api/tasks/{id}/checklist/{stepId}")
     suspend fun toggleChecklistStep(
@@ -143,6 +151,12 @@ interface PingDuluApiService {
         @Query("year") year: Int,
         @Query("month") month: Int
     ): Response<CalendarAgendaResponseDto>
+
+    // Patch Ke-7: Speed Test Record Persistence
+    @POST("api/speedtest/records")
+    suspend fun postSpeedTestRecord(
+        @Body body: SpeedTestRecordRequestDto
+    ): Response<ResponseBody>
 
     companion object {
         const val FIXED_BASE_URL = "https://ping.fjrx.my.id/"

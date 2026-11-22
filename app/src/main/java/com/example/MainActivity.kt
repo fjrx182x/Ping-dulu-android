@@ -1,11 +1,9 @@
 package com.example
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -44,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.Stage
 import com.example.presentation.calendar.CalendarScreen
+import com.example.presentation.components.ActiveTaskLimitWarningDialog
 import com.example.presentation.components.AppDestination
 import com.example.presentation.components.FieldOpsDrawerSheet
 import com.example.presentation.components.FieldToolkitBottomSheet
@@ -311,8 +310,7 @@ private fun PingDuluAppRoot(
                                     onStatusFilterSelected = viewModel::onStatusFilterSelected,
                                     onLayoutModeSelected = viewModel::onToggleLayoutMode,
                                     onTaskClicked = viewModel::openTaskDetail,
-                                    onToggleHeroTimer = viewModel::workTask,
-                                    onOpenMaps = { location -> openLocationInMaps(context, location) },
+                                    onCompleteHeroTask = viewModel::markTaskCompleted,
                                     onTriggerSync = viewModel::triggerSync,
                                     onToggleTheme = viewModel::toggleTheme,
                                     onMarkNotificationRead = viewModel::markNotificationRead,
@@ -369,6 +367,11 @@ private fun PingDuluAppRoot(
 
     // Global Interactive Work Order Bottom Sheet
     val selectedTask = uiState.selectedTaskForSheet
+    LaunchedEffect(selectedTask?.id) {
+        if (selectedTask != null && uiState.availableTechnicians.isEmpty()) {
+            viewModel.refreshCatalogs()
+        }
+    }
     if (selectedTask != null) {
         TaskDetailBottomSheet(
             task = selectedTask,
@@ -377,7 +380,6 @@ private fun PingDuluAppRoot(
             onToggleTimer = viewModel::workTask,
             onMarkCompleted = viewModel::markTaskCompleted,
             onReopenTask = { taskId -> viewModel.updateTaskStage(taskId, Stage.IN_PROGRESS) },
-            onOpenMaps = { location -> openLocationInMaps(context, location) },
             workspaceState = detailWorkspaceState,
             serverBaseUrl = uiState.serverBaseUrl,
             authToken = uiState.authToken,
@@ -389,9 +391,12 @@ private fun PingDuluAppRoot(
             currentUserId = uiState.currentUserId,
             currentUserName = uiState.technicianName,
             currentUserRole = uiState.technicianRole,
+            availableTechnicians = uiState.availableTechnicians,
             onWorkTask = viewModel::workTask,
             onClaimTask = viewModel::claimTask,
-            onDeleteTask = viewModel::deleteTask
+            onDeleteTask = viewModel::deleteTask,
+            onAddChecklistStep = viewModel::addChecklistStep,
+            onDelegateTechnicians = viewModel::delegateTechnicians
         )
     }
 
@@ -419,28 +424,21 @@ private fun PingDuluAppRoot(
         )
     }
 
-    // Offline Field Ops Network Toolkit Sheet
+    // Offline & Self-Hosted Field Ops Network Toolkit Sheet
     activeToolkitTab?.let { initialTab ->
         FieldToolkitBottomSheet(
             initialTab = initialTab,
             serverHostHint = uiState.serverBaseUrl,
+            authToken = uiState.authToken,
             onDismiss = { activeToolkitTab = null }
         )
     }
-}
 
-private fun openLocationInMaps(context: Context, location: String) {
-    val encodedQuery = Uri.encode(location.ifBlank { "Lokasi Lapangan" })
-    val geoIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encodedQuery"))
-    val webIntent = Intent(
-        Intent.ACTION_VIEW,
-        Uri.parse("https://www.google.com/maps/search/?api=1&query=$encodedQuery")
-    )
-    runCatching {
-        if (geoIntent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(geoIntent)
-        } else {
-            context.startActivity(webIntent)
-        }
+    // Global 5-Active-Task WIP Limit Warning Box
+    uiState.activeTaskLimitWarning?.let { warning ->
+        ActiveTaskLimitWarningDialog(
+            warning = warning,
+            onDismiss = viewModel::dismissActiveTaskLimitWarning
+        )
     }
 }

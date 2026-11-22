@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Lan
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PriorityHigh
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -584,6 +585,14 @@ private fun DrawerToolkitSection(
             subtitle = "Uji konektivitas TCP/ICMP ke server & gateway",
             onClick = { onOpenToolkit(FieldToolkitTab.PING) },
             testTag = "drawer_tool_ping"
+        )
+
+        DrawerToolRow(
+            icon = Icons.Rounded.Speed,
+            title = "Speed Test Tool (LibreSpeed)",
+            subtitle = "Uji throughput unduh & unggah (Self-Hosted / LAN)",
+            onClick = { onOpenToolkit(FieldToolkitTab.SPEEDTEST) },
+            testTag = "drawer_tool_speedtest"
         )
 
         DrawerToolRow(

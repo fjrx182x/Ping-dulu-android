@@ -8,6 +8,7 @@ import com.example.data.local.TaskDao
 import com.example.data.local.TaskEntity
 import com.example.data.local.toDomain
 import com.example.data.remote.PingDuluApiService
+import com.example.data.remote.dto.AddChecklistStepRequestDto
 import com.example.data.remote.dto.AddCommentRequestDto
 import com.example.data.remote.dto.CatalogResponseParser
 import com.example.data.remote.dto.ChecklistStepToggleDto
@@ -18,6 +19,8 @@ import com.example.data.remote.dto.TaskDetailResponseParser
 import com.example.data.remote.dto.TaskPatchRequestDto
 import com.example.data.remote.dto.TimerActionRequestDto
 import com.example.data.remote.dto.toEntity
+import com.example.domain.model.ActiveTaskLimitExceededException
+import com.example.domain.model.ActiveTaskLimitPolicy
 import com.example.domain.model.Assignee
 import com.example.domain.model.ChecklistItem
 import com.example.domain.model.DateEpochUtil
@@ -65,6 +68,7 @@ class TaskRepositoryImpl(
     private val techniciansFlow = MutableStateFlow<List<FieldTechnician>>(emptyList())
     private val officialLabelsFlow = MutableStateFlow<List<OfficialLabel>>(OfficialDefaultLabels)
     private val holidayCacheByYear = ConcurrentHashMap<Int, List<NationalHoliday>>()
+    private val recentlyMutatedServerTaskIds = ConcurrentHashMap<Long, Long>()
     private val syncMutex = Mutex()
     @Volatile
     private var activityEndpointMode: ActivityEndpointMode = ActivityEndpointMode.UNKNOWN
@@ -80,6 +84,7 @@ class TaskRepositoryImpl(
 
     private sealed interface CreateUploadOutcome {
         data class Synced(val entity: TaskEntity) : CreateUploadOutcome
+        data class LimitExceeded(val exception: ActiveTaskLimitExceededException) : CreateUploadOutcome
         data class Failed(val reason: String) : CreateUploadOutcome
     }
 
@@ -188,7 +193,8 @@ class TaskRepositoryImpl(
                 api = api,
                 uploadedCount = uploadedCount,
                 failedUploadIds = failedUploadIds,
-                lastUploadError = lastUploadError
+                lastUploadError = lastUploadError,
+                allowStalePrune = true
             )
         }
     }
@@ -196,7 +202,7 @@ class TaskRepositoryImpl(
     /**
      * Strict PULL-ONLY refresh used by SSE live events and fallback polling.
      * NEVER sends POST /api/tasks for pending local rows, completely preventing SSE echo flooding loops.
-     * Still reconciles any local pending negative-ID row whose `client_sync_id` already exists on server.
+     * NEVER deletes existing synced task cards during background pulls (upsert-only anti-vanishing guard).
      */
     override suspend fun pullTasksFromServerOnly(): SyncResult = withContext(Dispatchers.IO) {
         syncMutex.withLock {
@@ -204,7 +210,8 @@ class TaskRepositoryImpl(
                 api = apiServiceProvider(),
                 uploadedCount = 0,
                 failedUploadIds = emptySet(),
-                lastUploadError = null
+                lastUploadError = null,
+                allowStalePrune = false
             )
         }
     }
@@ -213,7 +220,8 @@ class TaskRepositoryImpl(
         api: PingDuluApiService,
         uploadedCount: Int,
         failedUploadIds: Set<Long>,
-        lastUploadError: String?
+        lastUploadError: String?,
+        allowStalePrune: Boolean
     ): SyncResult {
         return try {
             val response = api.getTasks()
@@ -231,7 +239,17 @@ class TaskRepositoryImpl(
                 )
             }
 
-            val remoteDtos = response.body()?.resolvedTasks().orEmpty().filter { it.id > 0L }
+            val responseBody = response.body()
+            if (responseBody == null || !responseBody.hasExplicitTaskList()) {
+                val err = "Respons GET /api/tasks tidak memuat daftar tiket valid. Data lokal tetap dipertahankan."
+                lastSyncErrorFlow.value = err
+                return SyncResult.OfflineFallback(
+                    pendingUploadCount = taskDao.getUnsyncedTasks().size,
+                    reason = err
+                )
+            }
+
+            val remoteDtos = responseBody.resolvedTasks().filter { it.id > 0L }
             val nowMillis = System.currentTimeMillis()
             val pendingLocalIds = taskDao.getUnsyncedTasks()
                 .filter { it.id > 0L }
@@ -246,6 +264,7 @@ class TaskRepositoryImpl(
                 .filter { it.id !in protectedIds }
                 .map { dto ->
                     val mapped = dto.toEntity(nowMillis = nowMillis)
+                    val existing = existingById[mapped.id]
                     val enrichedAssignees = if (knownTechById.isNotEmpty() && mapped.assignees.isNotEmpty()) {
                         mapped.assignees.map { assignee ->
                             val known = knownTechById[assignee.id]
@@ -258,8 +277,23 @@ class TaskRepositoryImpl(
                     } else {
                         mapped.assignees
                     }
-                    val cachedAttachments = existingById[mapped.id]?.attachments.orEmpty()
+                    val hasExplicitServerEpoch = dto.scheduledDateEpochDay != null && dto.scheduledDateEpochDay > 15_000L
+                    val preservedEpochDay = if (hasExplicitServerEpoch || existing == null) {
+                        mapped.scheduledDateEpochDay
+                    } else {
+                        existing.scheduledDateEpochDay
+                    }
+                    val preservedTimeMinutes = dto.scheduledTimeMinutes ?: existing?.scheduledTimeMinutes
+                    val preservedTimeSlot = if (dto.scheduledTimeMinutes != null || existing == null) {
+                        mapped.timeSlotLabel
+                    } else {
+                        existing.timeSlotLabel
+                    }
+                    val cachedAttachments = existing?.attachments.orEmpty()
                     mapped.copy(
+                        scheduledDateEpochDay = preservedEpochDay,
+                        scheduledTimeMinutes = preservedTimeMinutes,
+                        timeSlotLabel = preservedTimeSlot,
                         assignees = enrichedAssignees,
                         attachments = if (cachedAttachments.isNotEmpty()) {
                             mergeAttachments(mapped.attachments, cachedAttachments)
@@ -269,17 +303,35 @@ class TaskRepositoryImpl(
                     )
                 }
             val activeRemoteIds = remoteDtos.map { it.id }
-            val remoteClientSyncIds = remoteDtos.mapNotNull { it.clientSyncId?.trim()?.takeIf { id -> id.isNotEmpty() } }
+            val upsertedClientSyncIds = entitiesToUpsert.mapNotNull {
+                it.clientSyncId?.trim()?.takeIf { id -> id.isNotEmpty() }
+            }
+
+            // Anti-Mass-Wipe Safety Guard:
+            // 1. NEVER call deleteAllSyncedTasks() during a pull/sync (empty or >900 response never wipes Room).
+            // 2. Background SSE / polling pulls (allowStalePrune == false) NEVER delete local task cards.
+            // 3. Even on explicit full sync, refuse to prune if a single response would wipe >=50% of >=5 local synced tasks,
+            //    and always shield tasks created/mutated locally in the last 15 seconds against mid-flight race conditions.
+            val existingSyncedTasks = existingById.values.filter { it.isSynced && it.id > 0L }
+            recentlyMutatedServerTaskIds.entries.removeAll { (nowMillis - it.value) > 15_000L }
+            val recentlyUpdatedSyncedIds = recentlyMutatedServerTaskIds.keys.toList()
+            val safeKeepIds = (activeRemoteIds + recentlyUpdatedSyncedIds).distinct()
+            val safeKeepIdSet = safeKeepIds.toSet()
+            val wouldBePrunedCount = existingSyncedTasks.count { it.id !in safeKeepIdSet }
+            val isSuspiciousMassDrop = existingSyncedTasks.size >= 5 &&
+                wouldBePrunedCount * 2 >= existingSyncedTasks.size
+            val shouldPruneStale = allowStalePrune &&
+                activeRemoteIds.isNotEmpty() &&
+                safeKeepIds.size <= 900 &&
+                !isSuspiciousMassDrop
 
             val reconcileBlock: suspend () -> Unit = {
-                // Reconcile any local negative-ID task that already reached server (e.g. response dropped mid-flight)
-                for (syncId in remoteClientSyncIds) {
+                // Reconcile local negative-ID temp rows ONLY when their confirmed positive-ID replacement is being upserted
+                for (syncId in upsertedClientSyncIds) {
                     taskDao.deletePendingByClientSyncId(syncId)
                 }
-                if (activeRemoteIds.isEmpty() || activeRemoteIds.size > 900) {
-                    taskDao.deleteAllSyncedTasks()
-                } else {
-                    taskDao.deleteStaleSyncedTasks(activeRemoteIds)
+                if (shouldPruneStale) {
+                    taskDao.deleteStaleSyncedTasks(safeKeepIds)
                 }
                 if (entitiesToUpsert.isNotEmpty()) {
                     taskDao.upsertTasks(entitiesToUpsert)
@@ -329,9 +381,9 @@ class TaskRepositoryImpl(
             updatedAtMillis = now
         )
 
-        // Immediate real-time push when online (positive server IDs)
+        // Immediate real-time push when online (positive server IDs only — never PATCH temp negative IDs)
         val toggledItem = updatedChecklist.firstOrNull { it.id == checklistId }
-        if (taskId > 0L && toggledItem != null) {
+        if (taskId > 0L && checklistId > 0L && toggledItem != null) {
             tryRemote {
                 val response = apiServiceProvider().toggleChecklistStep(
                     id = taskId,
@@ -582,10 +634,20 @@ class TaskRepositoryImpl(
             when {
                 response.isSuccessful -> {
                     val body = response.body()
-                    val serverEntity = body?.task?.takeIf { it.id > 0L }?.toEntity(nowMillis = now)
-                    val finalized = if (serverEntity != null) {
+                    val serverDto = body?.task?.takeIf { it.id > 0L }
+                    val finalized = if (serverDto != null) {
+                        val serverEntity = serverDto.toEntity(nowMillis = now)
+                        val hasServerEpoch = serverDto.scheduledDateEpochDay != null && serverDto.scheduledDateEpochDay > 15_000L
                         serverEntity.copy(
                             isSynced = true,
+                            scheduledDateEpochDay = if (hasServerEpoch) serverEntity.scheduledDateEpochDay else existing.scheduledDateEpochDay,
+                            scheduledTimeMinutes = serverDto.scheduledTimeMinutes ?: existing.scheduledTimeMinutes,
+                            timeSlotLabel = if (serverDto.scheduledTimeMinutes != null) serverEntity.timeSlotLabel else existing.timeSlotLabel,
+                            location = if (!serverDto.location.isNullOrBlank()) serverEntity.location else existing.location,
+                            technicalNotes = if (!serverDto.technicalNotes.isNullOrBlank()) serverEntity.technicalNotes else existing.technicalNotes,
+                            checklist = serverEntity.checklist.ifEmpty { existing.checklist },
+                            assignees = serverEntity.assignees.ifEmpty { optimistic.assignees },
+                            labels = serverEntity.labels.ifEmpty { existing.labels },
                             attachments = mergeAttachments(serverEntity.attachments, existing.attachments),
                             createdById = serverEntity.createdById ?: existing.createdById,
                             createdByName = serverEntity.createdByName ?: existing.createdByName,
@@ -599,6 +661,7 @@ class TaskRepositoryImpl(
                         optimistic.copy(stage = resolvedStage, isSynced = true)
                     }
                     taskDao.upsertTask(finalized)
+                    recentlyMutatedServerTaskIds[finalized.id] = now
                     lastSyncErrorFlow.value = null
                     val defaultMsg = if (body?.isCollaboratorFlag == true) {
                         "$currentUserName bergabung mengerjakan tiket."
@@ -607,11 +670,23 @@ class TaskRepositoryImpl(
                     }
                     Result.success(body?.message?.trim()?.takeIf { it.isNotEmpty() } ?: defaultMsg)
                 }
-                response.code() == 403 -> {
+                response.code() == 403 || response.code() == 409 -> {
                     taskDao.upsertTask(existing)
-                    val policyMsg = extractPolicyErrorMessage(response)
-                    lastSyncErrorFlow.value = policyMsg
-                    Result.failure(IllegalStateException(policyMsg))
+                    val rawBody = readErrorBodySnippet(response)
+                    if (response.code() == 409 && ActiveTaskLimitPolicy.isClaimLimitExceededPayload(rawBody)) {
+                        val limitEx = ActiveTaskLimitPolicy.parseServerLimitException(
+                            rawBody = rawBody,
+                            isDelegationContext = false
+                        )
+                        lastSyncErrorFlow.value = limitEx.serverMessage
+                        Result.failure(limitEx)
+                    } else {
+                        val policyMsg = extractReadableMessage(rawBody).ifBlank {
+                            "Anda tidak memiliki izin untuk melakukan tindakan ini pada tiket ini (HTTP ${response.code()})."
+                        }
+                        lastSyncErrorFlow.value = policyMsg
+                        Result.failure(IllegalStateException(policyMsg))
+                    }
                 }
                 else -> {
                     val err = formatHttpError(response, "POST work")
@@ -660,10 +735,20 @@ class TaskRepositoryImpl(
             when {
                 response.isSuccessful -> {
                     val body = response.body()
-                    val serverEntity = body?.task?.takeIf { it.id > 0L }?.toEntity(nowMillis = now)
-                    val finalized = if (serverEntity != null) {
+                    val serverDto = body?.task?.takeIf { it.id > 0L }
+                    val finalized = if (serverDto != null) {
+                        val serverEntity = serverDto.toEntity(nowMillis = now)
+                        val hasServerEpoch = serverDto.scheduledDateEpochDay != null && serverDto.scheduledDateEpochDay > 15_000L
                         serverEntity.copy(
                             isSynced = true,
+                            scheduledDateEpochDay = if (hasServerEpoch) serverEntity.scheduledDateEpochDay else existing.scheduledDateEpochDay,
+                            scheduledTimeMinutes = serverDto.scheduledTimeMinutes ?: existing.scheduledTimeMinutes,
+                            timeSlotLabel = if (serverDto.scheduledTimeMinutes != null) serverEntity.timeSlotLabel else existing.timeSlotLabel,
+                            location = if (!serverDto.location.isNullOrBlank()) serverEntity.location else existing.location,
+                            technicalNotes = if (!serverDto.technicalNotes.isNullOrBlank()) serverEntity.technicalNotes else existing.technicalNotes,
+                            checklist = serverEntity.checklist.ifEmpty { existing.checklist },
+                            assignees = serverEntity.assignees.ifEmpty { optimistic.assignees },
+                            labels = serverEntity.labels.ifEmpty { existing.labels },
                             attachments = mergeAttachments(serverEntity.attachments, existing.attachments),
                             createdById = serverEntity.createdById ?: existing.createdById,
                             createdByName = serverEntity.createdByName ?: existing.createdByName,
@@ -674,14 +759,27 @@ class TaskRepositoryImpl(
                         optimistic.copy(isSynced = true)
                     }
                     taskDao.upsertTask(finalized)
+                    recentlyMutatedServerTaskIds[finalized.id] = now
                     lastSyncErrorFlow.value = null
                     Result.success(finalized.toDomain())
                 }
                 response.code() == 403 || response.code() == 409 -> {
                     taskDao.upsertTask(existing)
-                    val errMsg = extractPolicyErrorMessage(response)
-                    lastSyncErrorFlow.value = errMsg
-                    Result.failure(IllegalStateException(errMsg))
+                    val rawBody = readErrorBodySnippet(response)
+                    if (response.code() == 409 && ActiveTaskLimitPolicy.isClaimLimitExceededPayload(rawBody)) {
+                        val limitEx = ActiveTaskLimitPolicy.parseServerLimitException(
+                            rawBody = rawBody,
+                            isDelegationContext = false
+                        )
+                        lastSyncErrorFlow.value = limitEx.serverMessage
+                        Result.failure(limitEx)
+                    } else {
+                        val errMsg = extractReadableMessage(rawBody).ifBlank {
+                            "Anda tidak memiliki izin untuk mengambil tiket ini (HTTP ${response.code()})."
+                        }
+                        lastSyncErrorFlow.value = errMsg
+                        Result.failure(IllegalStateException(errMsg))
+                    }
                 }
                 else -> {
                     val err = formatHttpError(response, "POST claim")
@@ -694,6 +792,179 @@ class TaskRepositoryImpl(
         } catch (e: Exception) {
             lastSyncErrorFlow.value = e.localizedMessage?.takeIf { it.isNotBlank() }
                 ?: "Sedang offline — klaim tersimpan lokal"
+            Result.success(optimistic.toDomain())
+        }
+    }
+
+    override suspend fun addChecklistStep(
+        taskId: Long,
+        label: String
+    ): Result<ChecklistItem> = withContext(Dispatchers.IO) {
+        val cleanLabel = label.trim()
+        if (cleanLabel.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("Langkah checklist tidak boleh kosong."))
+        }
+        val existing = taskDao.getTaskByIdOnce(taskId)
+            ?: return@withContext Result.failure(IllegalStateException("Tiket tidak ditemukan."))
+        val now = System.currentTimeMillis()
+        val tempId = -now
+
+        if (taskId <= 0L) {
+            val localStep = ChecklistItem(id = tempId, label = cleanLabel, isDone = false)
+            val updated = existing.copy(
+                checklist = existing.checklist + localStep,
+                isSynced = false,
+                updatedAtMillis = now
+            )
+            taskDao.upsertTask(updated)
+            return@withContext Result.success(localStep)
+        }
+
+        try {
+            val response = apiServiceProvider().addChecklistStep(
+                taskId = taskId,
+                body = AddChecklistStepRequestDto(label = cleanLabel)
+            )
+            when {
+                response.isSuccessful -> {
+                    val raw = response.body()?.string().orEmpty()
+                    val createdStep = TaskDetailResponseParser.parseAddedChecklistStep(
+                        rawJson = raw,
+                        fallbackLabel = cleanLabel,
+                        fallbackTempId = tempId
+                    )
+                    val refreshedExisting = taskDao.getTaskByIdOnce(taskId) ?: existing
+                    val mergedChecklist = (refreshedExisting.checklist + createdStep)
+                        .distinctBy { if (it.id > 0L) "id:${it.id}" else "lbl:${it.label.lowercase()}" }
+                    taskDao.upsertTask(
+                        refreshedExisting.copy(
+                            checklist = mergedChecklist,
+                            isSynced = true,
+                            updatedAtMillis = now
+                        )
+                    )
+                    lastSyncErrorFlow.value = null
+                    Result.success(createdStep)
+                }
+                response.code() == 403 || response.code() == 409 -> {
+                    val errMsg = extractPolicyErrorMessage(response)
+                    lastSyncErrorFlow.value = errMsg
+                    Result.failure(IllegalStateException(errMsg))
+                }
+                else -> {
+                    val err = formatHttpError(response, "POST checklist")
+                    lastSyncErrorFlow.value = err
+                    Result.failure(IllegalStateException(err))
+                }
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            // Offline-first fallback: negative temp ID prevents remote 404 on immediate toggle
+            val offlineStep = ChecklistItem(id = tempId, label = cleanLabel, isDone = false)
+            taskDao.upsertTask(
+                existing.copy(
+                    checklist = existing.checklist + offlineStep,
+                    isSynced = false,
+                    updatedAtMillis = now
+                )
+            )
+            lastSyncErrorFlow.value = e.localizedMessage?.takeIf { it.isNotBlank() }
+                ?: "Sedang offline — langkah checklist disimpan lokal"
+            Result.success(offlineStep)
+        }
+    }
+
+    override suspend fun delegateTechnicians(
+        taskId: Long,
+        assigneeIds: List<Long>
+    ): Result<Task> = withContext(Dispatchers.IO) {
+        val existing = taskDao.getTaskByIdOnce(taskId)
+            ?: return@withContext Result.failure(IllegalStateException("Tiket tidak ditemukan."))
+        val cleanIds = assigneeIds.filter { it > 0L }.distinct()
+        if (cleanIds.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("Pilih minimal satu teknisi."))
+        }
+        val now = System.currentTimeMillis()
+        val techById = techniciansFlow.value.associateBy { it.id }
+        val existingById = existing.assignees.associateBy { it.id }
+        val updatedAssignees = cleanIds.mapIndexed { idx, uid ->
+            val knownTech = techById[uid]
+            val prev = existingById[uid]
+            Assignee(
+                id = uid,
+                name = knownTech?.resolvedName ?: prev?.name ?: "Teknisi #$uid",
+                role = knownTech?.role ?: prev?.role ?: "technician",
+                isLead = idx == 0
+            )
+        }
+        val leadId = cleanIds.firstOrNull()
+        val optimistic = existing.copy(
+            assignedToId = leadId,
+            assignees = updatedAssignees,
+            isSynced = false,
+            updatedAtMillis = now
+        )
+        taskDao.upsertTask(optimistic)
+
+        if (taskId <= 0L) {
+            return@withContext Result.success(optimistic.toDomain())
+        }
+
+        try {
+            val response = apiServiceProvider().patchTask(
+                id = taskId,
+                body = TaskPatchRequestDto(
+                    assigneeIds = cleanIds,
+                    assignedToId = leadId
+                )
+            )
+            when {
+                response.isSuccessful -> {
+                    val finalized = optimistic.copy(
+                        isSynced = true,
+                        checklist = existing.checklist
+                    )
+                    taskDao.upsertTask(finalized)
+                    lastSyncErrorFlow.value = null
+                    Result.success(finalized.toDomain())
+                }
+                response.code() == 409 -> {
+                    taskDao.upsertTask(existing)
+                    val rawBody = readErrorBodySnippet(response)
+                    if (ActiveTaskLimitPolicy.isClaimLimitExceededPayload(rawBody)) {
+                        val limitEx = ActiveTaskLimitPolicy.parseServerLimitException(
+                            rawBody = rawBody,
+                            isDelegationContext = true
+                        )
+                        lastSyncErrorFlow.value = limitEx.serverMessage
+                        Result.failure(limitEx)
+                    } else {
+                        val errMsg = extractReadableMessage(rawBody).ifBlank {
+                            "Gagal mendelegasikan teknisi (HTTP 409)."
+                        }
+                        lastSyncErrorFlow.value = errMsg
+                        Result.failure(IllegalStateException(errMsg))
+                    }
+                }
+                response.code() == 403 -> {
+                    taskDao.upsertTask(existing)
+                    val errMsg = extractPolicyErrorMessage(response)
+                    lastSyncErrorFlow.value = errMsg
+                    Result.failure(IllegalStateException(errMsg))
+                }
+                else -> {
+                    taskDao.upsertTask(existing)
+                    val err = formatHttpError(response, "PATCH assignees")
+                    lastSyncErrorFlow.value = err
+                    Result.failure(IllegalStateException(err))
+                }
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            lastSyncErrorFlow.value = e.localizedMessage?.takeIf { it.isNotBlank() }
+                ?: "Sedang offline — delegasi teknisi disimpan lokal"
             Result.success(optimistic.toDomain())
         }
     }
@@ -928,6 +1199,12 @@ class TaskRepositoryImpl(
                     )
                 ) {
                     is CreateUploadOutcome.Synced -> outcome.entity
+                    is CreateUploadOutcome.LimitExceeded -> {
+                        // Rollback temporary negative-ID task immediately when server enforces 5 active task limit
+                        taskDao.deleteTaskById(localId)
+                        taskDao.deletePendingByClientSyncId(clientSyncId)
+                        throw outcome.exception
+                    }
                     is CreateUploadOutcome.Failed -> stillPending
                 }
             }
@@ -1482,10 +1759,23 @@ class TaskRepositoryImpl(
 
             var response = api.createTask(buildCreateRequest(activeEntity, explicitLabelIds))
 
-            // Automatic single retry with guaranteed-unique ticket_code ONLY if server rejected with 409/UNIQUE
+            // Distinguish HTTP 409 CLAIM_LIMIT_EXCEEDED (5 active task WIP limit) from ticket_code collision!
             if (!response.isSuccessful) {
                 val rawError = readErrorBodySnippet(response)
-                val looksLikeTicketCodeCollision = response.code() == 409 ||
+                if (response.code() == 409 && ActiveTaskLimitPolicy.isClaimLimitExceededPayload(rawError)) {
+                    val isDelegation = entity.assignees.any { assignee ->
+                        assignee.id > 0L && assignee.id != entity.createdById
+                    } || entity.creatorRole.equals("admin", ignoreCase = true)
+                    val limitEx = ActiveTaskLimitPolicy.parseServerLimitException(
+                        rawBody = rawError,
+                        isDelegationContext = isDelegation
+                    )
+                    lastSyncErrorFlow.value = limitEx.serverMessage
+                    return CreateUploadOutcome.LimitExceeded(limitEx)
+                }
+
+                val looksLikeTicketCodeCollision = (response.code() == 409 &&
+                    !ActiveTaskLimitPolicy.isClaimLimitExceededPayload(rawError)) ||
                     rawError.contains("unique", ignoreCase = true) ||
                     rawError.contains("duplicate", ignoreCase = true) ||
                     rawError.contains("ticket_code", ignoreCase = true)
@@ -1504,7 +1794,19 @@ class TaskRepositoryImpl(
             }
 
             if (!response.isSuccessful) {
-                val reason = formatHttpError(response, "POST /api/tasks")
+                val retryRawError = readErrorBodySnippet(response)
+                if (response.code() == 409 && ActiveTaskLimitPolicy.isClaimLimitExceededPayload(retryRawError)) {
+                    val isDelegation = entity.assignees.any { assignee ->
+                        assignee.id > 0L && assignee.id != entity.createdById
+                    } || entity.creatorRole.equals("admin", ignoreCase = true)
+                    val limitEx = ActiveTaskLimitPolicy.parseServerLimitException(
+                        rawBody = retryRawError,
+                        isDelegationContext = isDelegation
+                    )
+                    lastSyncErrorFlow.value = limitEx.serverMessage
+                    return CreateUploadOutcome.LimitExceeded(limitEx)
+                }
+                val reason = formatHttpError(response, "POST /api/tasks", retryRawError)
                 lastSyncErrorFlow.value = reason
                 return CreateUploadOutcome.Failed(reason)
             }
@@ -1537,37 +1839,47 @@ class TaskRepositoryImpl(
                     taskDao.deletePendingByClientSyncId(stableSyncId)
                     taskDao.upsertTask(finalized)
                 }
+                recentlyMutatedServerTaskIds[finalized.id] = now
                 appPreferences?.updateLastSyncedAt(now)
                 lastSyncErrorFlow.value = null
                 return CreateUploadOutcome.Synced(finalized)
             }
 
             // Fallback for 200/201 Created responses that returned `{}` without an ID:
-            // Pull authoritative task list from server and atomically swap out the temporary negative-ID row.
+            // Pull authoritative task list from server and ONLY remove the temporary negative-ID row
+            // AFTER confirming the newly created positive-ID task actually exists on the server.
             val refreshRes = api.getTasks()
             if (refreshRes.isSuccessful) {
                 val remoteEntities = refreshRes.body()?.resolvedTasks().orEmpty()
                     .filter { it.id > 0L }
                     .map { it.toEntity(nowMillis = now) }
 
-                runInTransactionIfAvailable {
-                    taskDao.deleteTaskById(activeEntity.id)
-                    taskDao.deletePendingByClientSyncId(stableSyncId)
-                    if (remoteEntities.isNotEmpty()) {
-                        taskDao.upsertTasks(remoteEntities)
-                    }
-                }
                 val matched = remoteEntities.firstOrNull {
                     it.clientSyncId.equals(stableSyncId, ignoreCase = true)
                 } ?: remoteEntities.firstOrNull {
                     it.ticketCode.equals(activeEntity.ticketCode, ignoreCase = true)
                 } ?: remoteEntities.firstOrNull {
                     it.title.equals(activeEntity.title, ignoreCase = true)
-                } ?: activeEntity.copy(isSynced = true)
+                }
 
-                appPreferences?.updateLastSyncedAt(now)
-                lastSyncErrorFlow.value = null
-                CreateUploadOutcome.Synced(matched)
+                if (matched != null) {
+                    runInTransactionIfAvailable {
+                        taskDao.deleteTaskById(activeEntity.id)
+                        taskDao.deletePendingByClientSyncId(stableSyncId)
+                        taskDao.upsertTasks(remoteEntities)
+                    }
+                    appPreferences?.updateLastSyncedAt(now)
+                    lastSyncErrorFlow.value = null
+                    CreateUploadOutcome.Synced(matched)
+                } else {
+                    // Never delete local pending task when server confirmation is absent
+                    if (remoteEntities.isNotEmpty()) {
+                        taskDao.upsertTasks(remoteEntities)
+                    }
+                    val reason = "Server belum mengembalikan tiket baru; data tetap disimpan aman secara lokal."
+                    lastSyncErrorFlow.value = reason
+                    CreateUploadOutcome.Failed(reason)
+                }
             } else {
                 val reason = formatHttpError(refreshRes, "GET /api/tasks setelah create")
                 lastSyncErrorFlow.value = reason
@@ -1636,6 +1948,11 @@ class TaskRepositoryImpl(
             if (entity.id < 0L) {
                 when (val outcome = uploadNewTaskToServer(api, entity)) {
                     is CreateUploadOutcome.Synced -> PushOutcome.Success
+                    is CreateUploadOutcome.LimitExceeded -> {
+                        // NEVER silently delete an offline-created task during background sync!
+                        // Keep it safely in Room ("Antre Sync") until the technician completes 1 active task.
+                        PushOutcome.Failure(outcome.exception.serverMessage)
+                    }
                     is CreateUploadOutcome.Failed -> PushOutcome.Failure(outcome.reason)
                 }
             } else {

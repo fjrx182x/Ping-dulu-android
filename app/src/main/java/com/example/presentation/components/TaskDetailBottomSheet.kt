@@ -27,8 +27,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -37,7 +40,7 @@ import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.Handyman
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -70,6 +74,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,6 +82,7 @@ import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.remote.PingDuluApiService
 import com.example.domain.model.DateEpochUtil
+import com.example.domain.model.FieldTechnician
 import com.example.domain.model.SnoozeOption
 import com.example.domain.model.Stage
 import com.example.domain.model.Task
@@ -100,7 +106,6 @@ fun TaskDetailBottomSheet(
     onToggleTimer: (taskId: Long) -> Unit,
     onMarkCompleted: (taskId: Long) -> Unit,
     onReopenTask: (taskId: Long) -> Unit,
-    onOpenMaps: (location: String) -> Unit,
     workspaceState: TaskDetailWorkspaceState = TaskDetailWorkspaceState(taskId = task.id),
     serverBaseUrl: String = PingDuluApiService.FIXED_BASE_URL,
     authToken: String? = null,
@@ -112,9 +117,12 @@ fun TaskDetailBottomSheet(
     currentUserId: Long = 0L,
     currentUserName: String = "",
     currentUserRole: String = "admin",
+    availableTechnicians: List<FieldTechnician> = emptyList(),
     onWorkTask: (taskId: Long) -> Unit = onToggleTimer,
     onClaimTask: (taskId: Long) -> Unit = {},
-    onDeleteTask: (taskId: Long) -> Unit = {}
+    onDeleteTask: (taskId: Long) -> Unit = {},
+    onAddChecklistStep: (taskId: Long, label: String) -> Unit = { _, _ -> },
+    onDelegateTechnicians: (taskId: Long, assigneeIds: List<Long>) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -139,10 +147,22 @@ fun TaskDetailBottomSheet(
     ) {
         TaskPolicyHelper.canCompleteOrDelete(task, currentUserId, currentUserName, currentUserRole)
     }
+    val canDelegateOrAddChecklist = remember(
+        task.stage,
+        task.assignees,
+        task.assignedToId,
+        currentUserId,
+        currentUserName,
+        currentUserRole
+    ) {
+        TaskPolicyHelper.canDelegateOrAddChecklist(task, currentUserId, currentUserName, currentUserRole)
+    }
 
     var showSnoozeDialog by remember { mutableStateOf(false) }
     var showBlockedDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showDelegateDialog by remember { mutableStateOf(false) }
+    var newChecklistStepInput by remember(task.id) { mutableStateOf("") }
     var previewAttachment by remember { mutableStateOf<TaskAttachment?>(null) }
     var pendingCameraUri by remember { mutableStateOf<Pair<Uri, String>?>(null) }
 
@@ -296,51 +316,20 @@ fun TaskDetailBottomSheet(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.LocationOn,
-                                contentDescription = "Lokasi",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = task.location,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Surface(
-                            onClick = { onOpenMaps(task.location) },
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.testTag("sheet_maps_chip")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Navigation,
-                                    contentDescription = "Buka rute Maps",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "Maps",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+                        Icon(
+                            imageVector = Icons.Rounded.LocationOn,
+                            contentDescription = "Lokasi",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = task.location,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     if (task.isPlannedWork()) {
@@ -452,12 +441,47 @@ fun TaskDetailBottomSheet(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "TEKNISI BERTUGAS (MULTI-ASSIGNEE)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            letterSpacing = 0.6.sp
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "TEKNISI BERTUGAS (MULTI-ASSIGNEE)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.6.sp
+                            )
+                            if (canDelegateOrAddChecklist) {
+                                Surface(
+                                    onClick = { showDelegateDialog = true },
+                                    enabled = !workspaceState.isUpdatingAction,
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = PingDuluNavy.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, PingDuluNavy.copy(alpha = 0.35f)),
+                                    modifier = Modifier.testTag("sheet_add_technician_button")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.PersonAdd,
+                                            contentDescription = "Tambah teknisi delegasi",
+                                            tint = PingDuluNavy,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = "+ Tambah Teknisi",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PingDuluNavy
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         if (task.assignees.isEmpty()) {
                             Text(
                                 text = "Belum ada teknisi ditetapkan",
@@ -585,6 +609,55 @@ fun TaskDetailBottomSheet(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Patch Ke-7: Assigned technician & Admin can append new checklist sub-steps
+                    if (canDelegateOrAddChecklist) {
+                        val submitStep = {
+                            val clean = newChecklistStepInput.trim()
+                            if (clean.isNotEmpty()) {
+                                onAddChecklistStep(task.id, clean)
+                                newChecklistStepInput = ""
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newChecklistStepInput,
+                                onValueChange = { newChecklistStepInput = it },
+                                enabled = !workspaceState.isUpdatingAction,
+                                placeholder = { Text("Tambah langkah checklist...", fontSize = 13.sp) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { submitStep() }),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("sheet_add_checklist_input")
+                            )
+                            Button(
+                                onClick = submitStep,
+                                enabled = !workspaceState.isUpdatingAction && newChecklistStepInput.isNotBlank(),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PingDuluNavy,
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("sheet_add_checklist_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Add,
+                                    contentDescription = "Tambah langkah checklist",
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
@@ -867,6 +940,18 @@ fun TaskDetailBottomSheet(
             initialReason = task.blockedReason.orEmpty(),
             onDismiss = { showBlockedDialog = false },
             onConfirmBlocked = { reason -> onSetTaskBlocked(task.id, true, reason) }
+        )
+    }
+
+    if (showDelegateDialog) {
+        DelegateTechnicianDialog(
+            ticketCode = task.ticketCode,
+            currentAssignees = task.assignees,
+            availableTechnicians = availableTechnicians,
+            onDismiss = { showDelegateDialog = false },
+            onConfirmSelection = { selectedIds ->
+                onDelegateTechnicians(task.id, selectedIds)
+            }
         )
     }
 

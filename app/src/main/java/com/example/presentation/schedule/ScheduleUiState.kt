@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.example.data.local.ShiftStatus
 import com.example.data.remote.NetworkModule
 import com.example.data.remote.SseConnectionState
+import com.example.domain.model.ActiveTaskLimitWarning
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.FieldTechnician
 import com.example.domain.model.NationalHoliday
@@ -101,6 +102,8 @@ data class ScheduleUiState(
     val selectedFullDateLabel: String = "",
     val scheduleDays: List<DayHorizonModel> = emptyList(),
     val activeHeroTask: Task? = null,
+    val activeHeroTasks: List<Task> = emptyList(),
+    val activeTaskLimitWarning: ActiveTaskLimitWarning? = null,
     val liveHeroSeconds: Long = 0L,
     val allTasks: List<Task> = emptyList(),
     val filteredTasks: List<Task> = emptyList(),

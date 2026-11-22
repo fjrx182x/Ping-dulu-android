@@ -1,6 +1,7 @@
 package com.example.data.remote.dto
 
 import com.example.domain.model.ActivityCategory
+import com.example.domain.model.ChecklistItem
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.Stage
 import com.example.domain.model.TaskActivityItem
@@ -18,6 +19,30 @@ data class AddCommentRequestDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class AddChecklistStepRequestDto(
+    @Json(name = "label")
+    val label: String
+)
+
+@JsonClass(generateAdapter = true)
+data class SpeedTestRecordRequestDto(
+    @Json(name = "ping_ms")
+    val pingMs: Double,
+    @Json(name = "jitter_ms")
+    val jitterMs: Double,
+    @Json(name = "download_mbps")
+    val downloadMbps: Double,
+    @Json(name = "upload_mbps")
+    val uploadMbps: Double,
+    @Json(name = "client_ip")
+    val clientIp: String? = null,
+    @Json(name = "isp_name")
+    val ispName: String? = null,
+    @Json(name = "notes")
+    val notes: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class TaskPatchRequestDto(
     @Json(name = "tracked_seconds")
     val trackedSeconds: Long? = null,
@@ -30,7 +55,11 @@ data class TaskPatchRequestDto(
     @Json(name = "is_blocked")
     val isBlocked: Int? = null,
     @Json(name = "blocked_reason")
-    val blockedReason: String? = null
+    val blockedReason: String? = null,
+    @Json(name = "assignee_ids")
+    val assigneeIds: List<Long>? = null,
+    @Json(name = "assigned_to_id")
+    val assignedToId: Long? = null
 )
 
 /**
@@ -518,6 +547,72 @@ object TaskDetailResponseParser {
             lower.endsWith(".pdf") -> "application/pdf"
             else -> "application/octet-stream"
         }
+    }
+
+    /**
+     * Crash-proof parser for `POST /api/tasks/{id}/checklist` responses.
+     * Supports flat `{ id, label, is_done }`, wrapped `{ step: {...} }`, `{ checklist_step: {...} }`,
+     * `{ data: {...} }`, or `{ task: { checklist: [...] } }`.
+     */
+    fun parseAddedChecklistStep(
+        rawJson: String,
+        fallbackLabel: String,
+        fallbackTempId: Long
+    ): ChecklistItem {
+        val trimmed = rawJson.trim()
+        val parsed = runCatching {
+            if (!trimmed.startsWith("{")) return@runCatching null
+            val root = JSONObject(trimmed)
+            val candidateObj = root.optJSONObject("step")
+                ?: root.optJSONObject("checklist_step")
+                ?: root.optJSONObject("item")
+                ?: root.optJSONObject("data")?.takeIf { it.has("id") || it.has("label") || it.has("title") }
+                ?: run {
+                    val nestedList = root.optJSONObject("task")?.optJSONArray("checklist")
+                        ?: root.optJSONArray("checklist")
+                    if (nestedList != null && nestedList.length() > 0) {
+                        var match: JSONObject? = null
+                        for (i in nestedList.length() - 1 downTo 0) {
+                            val obj = nestedList.optJSONObject(i) ?: continue
+                            val text = obj.optCleanString("label")
+                                .ifEmpty { obj.optCleanString("title") }
+                                .ifEmpty { obj.optCleanString("text") }
+                            if (text.equals(fallbackLabel.trim(), ignoreCase = true)) {
+                                match = obj
+                                break
+                            }
+                        }
+                        match ?: nestedList.optJSONObject(nestedList.length() - 1)
+                    } else {
+                        root
+                    }
+                }
+
+            val resolvedId = candidateObj?.optLong("id", 0L)?.takeIf { it > 0L } ?: fallbackTempId
+            val resolvedLabel = candidateObj?.optCleanString("label")
+                ?.ifEmpty { candidateObj.optCleanString("title") }
+                ?.ifEmpty { candidateObj.optCleanString("text") }
+                ?.takeIf { it.isNotEmpty() }
+                ?: fallbackLabel.trim()
+            val rawDone = candidateObj?.opt("is_done")
+            val resolvedDone = when (rawDone) {
+                is Boolean -> rawDone
+                is Number -> rawDone.toInt() != 0
+                is String -> rawDone == "1" || rawDone.equals("true", ignoreCase = true)
+                else -> false
+            }
+            ChecklistItem(
+                id = resolvedId,
+                label = resolvedLabel,
+                isDone = resolvedDone
+            )
+        }.getOrNull()
+
+        return parsed ?: ChecklistItem(
+            id = fallbackTempId,
+            label = fallbackLabel.trim(),
+            isDone = false
+        )
     }
 
     private fun extractJsonArray(rawJson: String, wrapperKeys: List<String>): JSONArray? {
