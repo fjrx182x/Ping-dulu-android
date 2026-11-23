@@ -611,6 +611,21 @@ private class RecordingPingDuluApiService(
 
     override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<okhttp3.ResponseBody> =
         Response.success("{}".toResponseBody())
+
+    override suspend fun getSpeedTestRecordsRaw(): Response<okhttp3.ResponseBody> =
+        Response.success("[]".toResponseBody())
+
+    override suspend fun getMyProfile(): Response<com.example.data.remote.dto.AuthMeResponseDto> =
+        Response.success(com.example.data.remote.dto.AuthMeResponseDto(success = true))
+
+    override suspend fun uploadUserAvatar(userId: Long, file: okhttp3.MultipartBody.Part): Response<com.example.data.remote.dto.AvatarUploadResponseDto> =
+        Response.success(com.example.data.remote.dto.AvatarUploadResponseDto(success = true))
+
+    override suspend fun deleteUserAvatar(userId: Long): Response<com.example.data.remote.dto.UserMutationResponseDto> =
+        Response.success(com.example.data.remote.dto.UserMutationResponseDto(success = true))
+
+    override suspend fun updateUserProfile(userId: Long, request: com.example.data.remote.dto.UpdateUserRequestDto): Response<com.example.data.remote.dto.UserMutationResponseDto> =
+        Response.success(com.example.data.remote.dto.UserMutationResponseDto(success = true))
 }
 
 private class FailingPingDuluApiService : PingDuluApiService {
@@ -657,6 +672,11 @@ private class FailingPingDuluApiService : PingDuluApiService {
     override suspend fun getCalendar(year: Int, month: Int): Response<com.example.data.remote.dto.CalendarAgendaResponseDto> = throw IOException("Offline")
     override suspend fun addChecklistStep(taskId: Long, body: com.example.data.remote.dto.AddChecklistStepRequestDto): Response<okhttp3.ResponseBody> = throw IOException("Offline")
     override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun getSpeedTestRecordsRaw(): Response<okhttp3.ResponseBody> = throw IOException("Offline")
+    override suspend fun getMyProfile(): Response<com.example.data.remote.dto.AuthMeResponseDto> = throw IOException("Offline")
+    override suspend fun uploadUserAvatar(userId: Long, file: okhttp3.MultipartBody.Part): Response<com.example.data.remote.dto.AvatarUploadResponseDto> = throw IOException("Offline")
+    override suspend fun deleteUserAvatar(userId: Long): Response<com.example.data.remote.dto.UserMutationResponseDto> = throw IOException("Offline")
+    override suspend fun updateUserProfile(userId: Long, request: com.example.data.remote.dto.UpdateUserRequestDto): Response<com.example.data.remote.dto.UserMutationResponseDto> = throw IOException("Offline")
 }
 
 private class InMemoryTaskDao(initial: List<TaskEntity>) : TaskDao {

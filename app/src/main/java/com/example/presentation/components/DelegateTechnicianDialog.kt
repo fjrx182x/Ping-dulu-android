@@ -48,7 +48,8 @@ internal fun DelegateTechnicianDialog(
     currentAssignees: List<Assignee>,
     availableTechnicians: List<FieldTechnician>,
     onDismiss: () -> Unit,
-    onConfirmSelection: (List<Long>) -> Unit
+    onConfirmSelection: (List<Long>) -> Unit,
+    serverBaseUrl: String = com.example.data.remote.PingDuluApiService.FIXED_BASE_URL
 ) {
     val initialIds = remember(currentAssignees) {
         currentAssignees.mapNotNull { it.id.takeIf { id -> id > 0L } }
@@ -57,17 +58,24 @@ internal fun DelegateTechnicianDialog(
         mutableStateListOf<Long>().apply { addAll(initialIds) }
     }
 
-    // Merge server catalog with existing assignees so currently assigned techs are never hidden
+    // Patch Ke-8: ONLY active users (is_active == 1) appear in delegation picker!
+    // Still preserve currently assigned technicians so an already-assigned ticket remains inspectable.
     val mergedCandidates = remember(availableTechnicians, currentAssignees) {
         val byId = LinkedHashMap<Long, FieldTechnician>()
-        availableTechnicians.filter { it.id > 0L }.forEach { byId[it.id] = it }
+        availableTechnicians
+            .filter { it.id > 0L && it.isUserActive }
+            .forEach { byId[it.id] = it }
         currentAssignees.filter { it.id > 0L }.forEach { assignee ->
-            if (assignee.id !in byId) {
+            if (assignee.id !in byId && assignee.isUserActive) {
                 byId[assignee.id] = FieldTechnician(
                     id = assignee.id,
-                    username = assignee.name.lowercase().replace(" ", "."),
+                    username = assignee.username ?: assignee.name.lowercase().replace(" ", "."),
                     displayName = assignee.name,
-                    role = assignee.role
+                    role = assignee.role,
+                    avatarUrl = assignee.avatarUrl,
+                    department = assignee.department,
+                    subDepartment = assignee.subDepartment,
+                    isActive = assignee.isActive
                 )
             }
         }
@@ -86,7 +94,7 @@ internal fun DelegateTechnicianDialog(
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Pilih teknisi untuk bergabung mengerjakan tiket ini (batas maks. 5 task aktif per teknisi).",
+                    text = "Hanya teknisi aktif yang dapat dipilih (batas maks. 5 task aktif per teknisi).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -95,7 +103,7 @@ internal fun DelegateTechnicianDialog(
         text = {
             if (mergedCandidates.isEmpty()) {
                 Text(
-                    text = "Daftar teknisi belum termuat. Tarik sinkronisasi server terlebih dahulu.",
+                    text = "Daftar teknisi aktif belum termuat. Tarik sinkronisasi server terlebih dahulu.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -110,10 +118,17 @@ internal fun DelegateTechnicianDialog(
                     mergedCandidates.forEach { tech ->
                         val isChecked = tech.id in selectedIds
                         val isLead = selectedIds.firstOrNull() == tech.id
+                        val roleLabel = if (tech.role.equals("admin", ignoreCase = true)) {
+                            "Admin Operasional"
+                        } else {
+                            "Teknisi Lapangan"
+                        }
+                        val subtitle = tech.departmentDisplay?.let { "$it · $roleLabel" } ?: roleLabel
+
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .defaultMinSize(minHeight = 48.dp)
+                                .defaultMinSize(minHeight = 52.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .toggleable(
                                     value = isChecked,
@@ -141,7 +156,7 @@ internal fun DelegateTechnicianDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
@@ -153,6 +168,16 @@ internal fun DelegateTechnicianDialog(
                                         uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 )
+                                UserAvatar(
+                                    avatarUrl = tech.avatarUrl,
+                                    displayName = tech.resolvedName,
+                                    size = 34.dp,
+                                    isActive = tech.isUserActive,
+                                    showActiveBadge = true,
+                                    serverBaseUrl = serverBaseUrl,
+                                    ringColor = MaterialTheme.colorScheme.surface,
+                                    ringWidth = 1.5.dp
+                                )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = if (isLead) "${tech.resolvedName} (Lead)" else tech.resolvedName,
@@ -161,11 +186,7 @@ internal fun DelegateTechnicianDialog(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = if (tech.role.equals("admin", ignoreCase = true)) {
-                                            "Admin Operasional"
-                                        } else {
-                                            "Teknisi Lapangan"
-                                        },
+                                        text = subtitle,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

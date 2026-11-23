@@ -80,13 +80,27 @@ data class AssigneeDto(
     @Json(name = "role")
     val role: String? = null,
     @Json(name = "is_lead")
-    val isLead: Any? = null
+    val isLead: Any? = null,
+    @Json(name = "avatar_url")
+    val avatarUrl: String? = null,
+    @Json(name = "department")
+    val department: String? = null,
+    @Json(name = "sub_department")
+    val subDepartment: String? = null,
+    @Json(name = "is_active")
+    val isActive: Any? = null
 ) {
     val resolvedName: String
         get() = displayName?.trim()?.takeIf { it.isNotEmpty() }
             ?: name?.trim()?.takeIf { it.isNotEmpty() }
             ?: username?.trim()?.takeIf { it.isNotEmpty() }
             ?: "Teknisi"
+
+    val resolvedIsActive: Int
+        get() = when (isActive) {
+            null -> 1
+            else -> if (parseFlexibleBoolean(isActive)) 1 else 0
+        }
 }
 
 @JsonClass(generateAdapter = true)
@@ -247,7 +261,12 @@ fun AssigneeDto.toDomain(): Assignee = Assignee(
     id = id ?: 0L,
     name = resolvedName,
     role = role.orEmpty().ifBlank { "technician" },
-    isLead = parseFlexibleBoolean(isLead)
+    isLead = parseFlexibleBoolean(isLead),
+    username = username?.trim()?.takeIf { it.isNotEmpty() },
+    avatarUrl = avatarUrl?.trim()?.takeIf { it.isNotEmpty() },
+    department = department?.trim()?.takeIf { it.isNotEmpty() },
+    subDepartment = subDepartment?.trim()?.takeIf { it.isNotEmpty() },
+    isActive = resolvedIsActive
 )
 
 fun TaskDto.toEntity(nowMillis: Long = System.currentTimeMillis()): TaskEntity {

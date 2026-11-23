@@ -54,6 +54,7 @@ import com.example.presentation.components.TaskDetailBottomSheet
 import com.example.presentation.kanban.KanbanBoardScreen
 import com.example.presentation.login.LoginScreen
 import com.example.presentation.login.SessionLoadingSplash
+import com.example.presentation.profile.ProfileScreen
 import com.example.presentation.schedule.ScheduleScreen
 import com.example.presentation.schedule.ScheduleUiState
 import com.example.presentation.schedule.ScheduleViewModel
@@ -168,6 +169,7 @@ private fun PingDuluAppRoot(
     val detailWorkspaceState by viewModel.detailWorkspaceState.collectAsStateWithLifecycle()
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.AGENDA) }
     var showSpkHistoryFromSettings by rememberSaveable { mutableStateOf(false) }
+    var showProfileScreen by rememberSaveable { mutableStateOf(false) }
     var showQuickAddSheet by rememberSaveable { mutableStateOf(false) }
     var activeToolkitTab by rememberSaveable { mutableStateOf<FieldToolkitTab?>(null) }
     var hasPromptedNotificationPermission by rememberSaveable { mutableStateOf(false) }
@@ -197,6 +199,7 @@ private fun PingDuluAppRoot(
 
     LaunchedEffect(agendaDeepLinkNonce) {
         if (agendaDeepLinkNonce > 0) {
+            showProfileScreen = false
             showSpkHistoryFromSettings = false
             currentDestination = AppDestination.AGENDA
         }
@@ -316,7 +319,8 @@ private fun PingDuluAppRoot(
                                     onMarkNotificationRead = viewModel::markNotificationRead,
                                     onMarkAllNotificationsRead = viewModel::markAllNotificationsRead,
                                     onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
-                                    onResetDrawerFilters = viewModel::resetDrawerFilters
+                                    onResetDrawerFilters = viewModel::resetDrawerFilters,
+                                    onOpenProfile = { showProfileScreen = true }
                                 )
                             }
 
@@ -354,13 +358,32 @@ private fun PingDuluAppRoot(
                                         onTriggerSync = viewModel::triggerSync,
                                         onLogout = viewModel::logoutFromServer,
                                         onToggleTheme = viewModel::toggleTheme,
-                                        onOpenSpkHistory = { showSpkHistoryFromSettings = true }
+                                        onOpenSpkHistory = { showSpkHistoryFromSettings = true },
+                                        onOpenProfile = { showProfileScreen = true }
                                     )
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            if (showProfileScreen) {
+                ProfileScreen(
+                    uiState = uiState,
+                    onBackClick = { showProfileScreen = false },
+                    onRefreshProfile = viewModel::refreshMyProfile,
+                    onPickAvatarUri = { uri -> viewModel.uploadMyAvatar(context, uri) },
+                    onDeleteAvatar = viewModel::deleteMyAvatar,
+                    onUpdateProfile = { newName, newPassword, onSuccess ->
+                        viewModel.updateMyProfile(
+                            displayName = newName,
+                            password = newPassword,
+                            onSuccess = onSuccess
+                        )
+                    },
+                    onClearProfileError = viewModel::clearProfileError
+                )
             }
         }
     }

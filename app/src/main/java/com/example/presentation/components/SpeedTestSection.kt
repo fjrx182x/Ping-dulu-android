@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,15 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -50,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,7 +59,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -72,14 +68,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.DateEpochUtil
+import com.example.domain.tools.ClientNetworkInfo
 import com.example.domain.tools.FieldNetworkTools
+import com.example.domain.tools.PublicEdgeSpeedTestEngine
+import com.example.domain.tools.RealIspDetector
 import com.example.domain.tools.SpeedTestPhase
 import com.example.domain.tools.SpeedTestProgress
+import com.example.domain.tools.SpeedTestRecordsClient
 import com.example.domain.tools.SpeedTestResult
+import com.example.domain.tools.SpeedTestServerRecord
+import com.example.domain.tools.SpeedTestTargetMode
 import com.example.ui.theme.CbnCobaltBlue
 import com.example.ui.theme.CbnCobaltLight
-import com.example.ui.theme.CbnDeepSlate
-import com.example.ui.theme.CbnSlateBorder
 import com.example.ui.theme.CbnSlateMuted
 import com.example.ui.theme.CbnSparklineCyan
 import com.example.ui.theme.CbnTrackSlate
@@ -102,7 +102,10 @@ import java.util.Locale
 @Composable
 internal fun SpeedTestSection(
     serverHostHint: String,
-    authToken: String?
+    authToken: String?,
+    initialDetectedInfo: ClientNetworkInfo? = null,
+    initialServerRecords: List<SpeedTestServerRecord> = emptyList(),
+    autoFetchOnLaunch: Boolean = true
 ) {
     val defaultBaseUrl = remember(serverHostHint) {
         FieldNetworkTools.normalizeHttpUrl(
@@ -110,19 +113,76 @@ internal fun SpeedTestSection(
         )
     }
 
+    var targetMode by rememberSaveable { mutableStateOf(SpeedTestTargetMode.PUBLIC_EDGE_100G) }
     var serverInput by rememberSaveable(defaultBaseUrl) { mutableStateOf(defaultBaseUrl) }
     var isRunning by remember { mutableStateOf(false) }
     var activeJob by remember { mutableStateOf<Job?>(null) }
     var progressState by remember { mutableStateOf<SpeedTestProgress?>(null) }
     var latestResult by remember { mutableStateOf<SpeedTestResult?>(null) }
+    var latestResultMode by remember { mutableStateOf(SpeedTestTargetMode.PUBLIC_EDGE_100G) }
     val testHistory = remember { mutableStateListOf<SpeedTestResult>() }
     var copiedMessage by remember { mutableStateOf(false) }
+
+    // Dynamic ISP detection & Server History state (Patch Ke-8)
+    var detectedClientInfo by remember { mutableStateOf(initialDetectedInfo) }
+    var isDetectingIsp by remember { mutableStateOf(initialDetectedInfo == null && autoFetchOnLaunch) }
+    var userNotes by rememberSaveable { mutableStateOf("") }
+    var isSavingRecord by remember { mutableStateOf(false) }
+    var recordSavedForLatest by remember { mutableStateOf(false) }
+    var saveRecordError by remember { mutableStateOf<String?>(null) }
+    var serverRecords by remember { mutableStateOf(initialServerRecords) }
+    var isLoadingRecords by remember { mutableStateOf(false) }
+    var serverHistoryError by remember { mutableStateOf<String?>(null) }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val hasBearerToken = !authToken.isNullOrBlank()
 
-    // Ensure active sockets abort immediately when the BottomSheet is dismissed or tab switches
+    fun refreshServerHistory() {
+        val targetBase = serverInput.ifBlank { defaultBaseUrl }
+        if (targetBase.isBlank()) return
+        coroutineScope.launch {
+            isLoadingRecords = true
+            serverHistoryError = null
+            val fetched = SpeedTestRecordsClient.fetchRecords(
+                serverBaseUrl = targetBase,
+                authToken = authToken
+            )
+            fetched.fold(
+                onSuccess = { records ->
+                    serverRecords = records
+                },
+                onFailure = { err ->
+                    if (serverRecords.isEmpty()) {
+                        serverHistoryError = if (!hasBearerToken) {
+                            "Login di Pengaturan untuk melihat riwayat pengujian tim di server."
+                        } else {
+                            err.message ?: "Riwayat server belum tersedia saat offline."
+                        }
+                    }
+                }
+            )
+            isLoadingRecords = false
+        }
+    }
+
+    // Auto-detect real client ISP/IP and fetch server history on screen open
+    LaunchedEffect(autoFetchOnLaunch, defaultBaseUrl, authToken) {
+        if (!autoFetchOnLaunch) return@LaunchedEffect
+        launch {
+            isDetectingIsp = true
+            val info = runCatching { RealIspDetector.detect() }.getOrNull()
+            if (info != null) {
+                detectedClientInfo = info
+            }
+            isDetectingIsp = false
+        }
+        if (hasBearerToken) {
+            refreshServerHistory()
+        }
+    }
+
+    // Ensure active sockets abort immediately when BottomSheet is dismissed or tab switches
     DisposableEffect(Unit) {
         onDispose {
             activeJob?.cancel()
@@ -150,31 +210,71 @@ internal fun SpeedTestSection(
     }
 
     fun startSpeedTest() {
-        if (isRunning || serverInput.isBlank()) return
+        val canStart = if (targetMode == SpeedTestTargetMode.PUBLIC_EDGE_100G) {
+            !isRunning
+        } else {
+            !isRunning && serverInput.isNotBlank()
+        }
+        if (!canStart) return
+
         copiedMessage = false
         latestResult = null
+        latestResultMode = targetMode
+        recordSavedForLatest = false
+        saveRecordError = null
         isRunning = true
         progressState = SpeedTestProgress(
             phase = SpeedTestPhase.PING,
             progressPercent = 4,
-            statusMessage = "Mengukur Ping..."
+            clientIp = detectedClientInfo?.ip?.takeIf { it != "—" },
+            ispName = detectedClientInfo?.ispWithLocation,
+            statusMessage = if (targetMode == SpeedTestTargetMode.PUBLIC_EDGE_100G) {
+                "Menghubungkan ke Cloudflare Edge 100G..."
+            } else {
+                "Mengukur Ping ke Server Lokal..."
+            }
         )
+        val runMode = targetMode
         activeJob = coroutineScope.launch {
             try {
-                val result = FieldNetworkTools.runSpeedTest(
-                    serverBaseUrl = serverInput,
-                    authToken = authToken,
-                    onProgress = { progress ->
-                        withContext(Dispatchers.Main.immediate) {
-                            progressState = progress
+                val result = if (runMode == SpeedTestTargetMode.PUBLIC_EDGE_100G) {
+                    PublicEdgeSpeedTestEngine.runPublicEdgeTest(
+                        preDetectedClientInfo = detectedClientInfo,
+                        onProgress = { progress ->
+                            withContext(Dispatchers.Main.immediate) {
+                                progressState = progress
+                            }
                         }
-                    }
-                )
+                    )
+                } else {
+                    FieldNetworkTools.runSpeedTest(
+                        serverBaseUrl = serverInput,
+                        authToken = authToken,
+                        onProgress = { progress ->
+                            withContext(Dispatchers.Main.immediate) {
+                                progressState = progress
+                            }
+                        }
+                    )
+                }
                 latestResult = result
+                recordSavedForLatest = result.savedToServer
                 if (result.isSuccess) {
+                    if (!result.clientIp.isNullOrBlank() && detectedClientInfo?.isDetectedReal != true) {
+                        val ispText = result.ispName?.substringBefore("•")?.trim().orEmpty().ifBlank { "ISP Publik" }
+                        val locText = result.ispName?.substringAfter("•", "")?.trim().orEmpty().ifBlank { "Indonesia" }
+                        detectedClientInfo = ClientNetworkInfo(
+                            ip = result.clientIp,
+                            isp = ispText,
+                            location = locText
+                        )
+                    }
                     testHistory.add(0, result)
                     if (testHistory.size > 5) {
                         testHistory.removeAt(testHistory.lastIndex)
+                    }
+                    if (result.savedToServer && hasBearerToken) {
+                        refreshServerHistory()
                     }
                 }
             } catch (_: CancellationException) {
@@ -183,6 +283,35 @@ internal fun SpeedTestSection(
                 isRunning = false
                 activeJob = null
             }
+        }
+    }
+
+    fun saveLatestRecordToServer() {
+        val result = latestResult?.takeIf { it.isSuccess } ?: return
+        if (isSavingRecord) return
+        val targetBase = serverInput.ifBlank { defaultBaseUrl }
+        coroutineScope.launch {
+            isSavingRecord = true
+            saveRecordError = null
+            val saveOutcome = SpeedTestRecordsClient.saveRecord(
+                serverBaseUrl = targetBase,
+                authToken = authToken,
+                result = result,
+                clientInfo = detectedClientInfo,
+                mode = latestResultMode,
+                userNotes = userNotes
+            )
+            saveOutcome.fold(
+                onSuccess = {
+                    recordSavedForLatest = true
+                    userNotes = ""
+                    refreshServerHistory()
+                },
+                onFailure = { err ->
+                    saveRecordError = err.message ?: "Gagal menyimpan riwayat speedtest."
+                }
+            )
+            isSavingRecord = false
         }
     }
 
@@ -232,7 +361,14 @@ internal fun SpeedTestSection(
         latestResult?.takeIf { it.isSuccess }?.uploadSamples.orEmpty()
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 0. Dual-Mode Target Selector (Default: Internet Publik Cloudflare Edge 100G vs Server PingDulu Lokal)
+        SpeedTestDualModeSelector(
+            selectedMode = targetMode,
+            enabled = !isRunning,
+            onSelectMode = { targetMode = it }
+        )
+
         // 1. CBN / Ookla 266° Canvas Speedometer Gauge
         CbnSpeedometerGauge(
             speedMbps = liveGaugeMbps,
@@ -320,6 +456,7 @@ internal fun SpeedTestSection(
                 )
             }
         } else {
+            val isStartEnabled = targetMode == SpeedTestTargetMode.PUBLIC_EDGE_100G || serverInput.isNotBlank()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -332,7 +469,7 @@ internal fun SpeedTestSection(
             ) {
                 Button(
                     onClick = { startSpeedTest() },
-                    enabled = serverInput.isNotBlank(),
+                    enabled = isStartEnabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = 50.dp)
@@ -352,14 +489,18 @@ internal fun SpeedTestSection(
                     )
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(
-                        text = "Mulai Pengujian",
+                        text = if (targetMode == SpeedTestTargetMode.PUBLIC_EDGE_100G) {
+                            "Mulai Uji Edge 100G"
+                        } else {
+                            "Mulai Uji Server Lokal"
+                        },
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
         }
 
-        // 5. Explicit Error Banner when test fails (HTTP 401/404/413/500, DNS, Timeout, etc.)
+        // 5. Explicit Error Banner when test fails
         val errorMessage = latestResult?.takeIf { !it.isSuccess }?.errorMessage
         AnimatedVisibility(visible = !isRunning && !errorMessage.isNullOrBlank()) {
             Surface(
@@ -400,210 +541,33 @@ internal fun SpeedTestSection(
             }
         }
 
-        // 6. Network Footer (Client IP / ISP + Target Server + Server Record Save Badge)
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = CbnDeepSlate,
-            border = BorderStroke(1.dp, CbnSlateBorder.copy(alpha = 0.7f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("speedtest_network_footer")
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Public,
-                            contentDescription = null,
-                            tint = CbnSparklineCyan,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        val clientLabel = when {
-                            !displayIsp.isNullOrBlank() && !displayClientIp.isNullOrBlank() ->
-                                "$displayIsp ($displayClientIp)"
-                            !displayClientIp.isNullOrBlank() -> "IP Klien: $displayClientIp"
-                            else -> "IP Klien terdeteksi saat pengujian"
-                        }
-                        Text(
-                            text = clientLabel,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontFamily = JetBrainsMonoFontFamily,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    latestResult?.takeIf { it.isSuccess }?.let { res ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (res.savedToServer) {
-                                PillDoneMint.copy(alpha = 0.16f)
-                            } else {
-                                CbnTrackSlate
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (res.savedToServer) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
-                                    contentDescription = null,
-                                    tint = if (res.savedToServer) PillDoneMint else CbnSlateMuted,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(
-                                    text = if (res.savedToServer) "Tersimpan" else "Lokal",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (res.savedToServer) PillDoneMint else CbnSlateMuted
-                                )
-                            }
-                        }
-                    }
-                }
-
-                val targetHostLabel = serverInput
-                    .trim()
-                    .removePrefix("https://")
-                    .removePrefix("http://")
-                    .ifBlank { "ping.fjrx.my.id" }
-                Text(
-                    text = "Server: PingDulu / $targetHostLabel",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CbnSlateMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        // 7. Mode & Auth Status Banner
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = if (hasBearerToken) {
-                PillDoneMint.copy(alpha = 0.12f)
-            } else {
-                P2Amber.copy(alpha = 0.14f)
-            },
-            border = BorderStroke(
-                width = 1.dp,
-                color = if (hasBearerToken) {
-                    PillDoneMint.copy(alpha = 0.40f)
-                } else {
-                    P2Amber.copy(alpha = 0.45f)
-                }
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("speedtest_auth_badge")
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = if (hasBearerToken) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                    contentDescription = null,
-                    tint = if (hasBearerToken) PillDoneMint else P2Amber,
-                    modifier = Modifier.size(16.dp)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (hasBearerToken) {
-                            "Self-Hosted / LAN · Bearer Auth Aktif"
-                        } else {
-                            "Self-Hosted / LAN · Tanpa Token Bearer"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (hasBearerToken) {
-                            "Header Authorization otomatis dikirim ke /api/speedtest/*"
-                        } else {
-                            "Login di Pengaturan bila server mewajibkan header Bearer"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2
-                    )
-                }
-            }
-        }
-
-        // 8. Server Host Input & Quick Presets
-        OutlinedTextField(
-            value = serverInput,
-            onValueChange = { serverInput = it },
-            enabled = !isRunning,
-            label = { Text("Server LibreSpeed (Self-Hosted / LAN)") },
-            placeholder = { Text("https://ping.fjrx.my.id atau http://192.168.1.x:3001") },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Rounded.Router,
-                    contentDescription = null
-                )
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(onDone = { startSpeedTest() }),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("speedtest_server_input")
+        // 6. Client Device Info Card (Dynamic ISP + Location + Monospace Real IP + Target)
+        ClientDeviceInfoCard(
+            clientInfo = detectedClientInfo,
+            isDetecting = isDetectingIsp,
+            fallbackIp = displayClientIp,
+            fallbackIsp = displayIsp,
+            targetMode = targetMode,
+            localServerHost = serverInput,
+            latestResult = latestResult,
+            isSavedToServer = recordSavedForLatest
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            serverPresets.forEach { preset ->
-                val selected = serverInput.trim().trimEnd('/').equals(preset, ignoreCase = true)
-                FilterChip(
-                    selected = selected,
-                    enabled = !isRunning,
-                    onClick = { serverInput = preset },
-                    label = {
-                        Text(
-                            text = preset.removePrefix("https://").removePrefix("http://"),
-                            fontFamily = JetBrainsMonoFontFamily,
-                            fontSize = 11.5.sp
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = PingDuluNavy,
-                        selectedLabelColor = Color.White
-                    )
-                )
-            }
+        // 7. Save to Server History with Auto-Tagging (shown after a completed test)
+        AnimatedVisibility(visible = !isRunning && latestResult?.isSuccess == true) {
+            SaveSpeedTestRecordCard(
+                userNotes = userNotes,
+                onNotesChange = { userNotes = it },
+                targetMode = latestResultMode,
+                isSaving = isSavingRecord,
+                isSaved = recordSavedForLatest,
+                saveError = saveRecordError,
+                hasAuthToken = hasBearerToken,
+                onSaveClick = { saveLatestRecordToServer() }
+            )
         }
 
-        // 9. Copy Diagnostic Summary (WIB)
+        // 8. Copy Diagnostic Summary (WIB)
         latestResult?.takeIf { it.isSuccess }?.let { res ->
             Button(
                 onClick = {
@@ -637,7 +601,128 @@ internal fun SpeedTestSection(
             }
         }
 
-        // 10. Local Test History (up to 5 recent runs)
+        // 9. Local LAN Server Host Input & Auth Badge (revealed when LOCAL_LAN_SERVER is active)
+        AnimatedVisibility(visible = targetMode == SpeedTestTargetMode.LOCAL_LAN_SERVER) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (hasBearerToken) {
+                        PillDoneMint.copy(alpha = 0.12f)
+                    } else {
+                        P2Amber.copy(alpha = 0.14f)
+                    },
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (hasBearerToken) {
+                            PillDoneMint.copy(alpha = 0.40f)
+                        } else {
+                            P2Amber.copy(alpha = 0.45f)
+                        }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("speedtest_auth_badge")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (hasBearerToken) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                            contentDescription = null,
+                            tint = if (hasBearerToken) PillDoneMint else P2Amber,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (hasBearerToken) {
+                                    "Server Lokal LAN · Bearer Auth Aktif"
+                                } else {
+                                    "Server Lokal LAN · Tanpa Token Bearer"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (hasBearerToken) {
+                                    "Header Authorization otomatis dikirim ke /api/speedtest/*"
+                                } else {
+                                    "Login di Pengaturan bila server mewajibkan header Bearer"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = serverInput,
+                    onValueChange = { serverInput = it },
+                    enabled = !isRunning,
+                    label = { Text("Server PingDulu Lokal (LibreSpeed / LAN)") },
+                    placeholder = { Text("https://ping.fjrx.my.id atau http://192.168.1.x:3001") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Router,
+                            contentDescription = null
+                        )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { startSpeedTest() }),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("speedtest_server_input")
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    serverPresets.forEach { preset ->
+                        val selected = serverInput.trim().trimEnd('/').equals(preset, ignoreCase = true)
+                        FilterChip(
+                            selected = selected,
+                            enabled = !isRunning,
+                            onClick = { serverInput = preset },
+                            label = {
+                                Text(
+                                    text = preset.removePrefix("https://").removePrefix("http://"),
+                                    fontFamily = JetBrainsMonoFontFamily,
+                                    fontSize = 11.5.sp
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = PingDuluNavy,
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // 10. Server History Card (GET /api/speedtest/records — 30 latest records with Edge 100G / Lokal & ISP badges)
+        SpeedTestServerHistoryCard(
+            records = serverRecords,
+            isLoading = isLoadingRecords,
+            errorMessage = serverHistoryError,
+            onRefresh = { refreshServerHistory() }
+        )
+
+        // 11. Session Local History (up to 5 recent runs on device)
         if (testHistory.isNotEmpty()) {
             val timeFormatter = remember {
                 SimpleDateFormat("HH:mm:ss 'WIB'", Locale.forLanguageTag("id-ID")).apply {
@@ -667,7 +752,7 @@ internal fun SpeedTestSection(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "RIWAYAT UJI TERAKHIR (${testHistory.size}/5)",
+                            text = "RIWAYAT SESI INI (${testHistory.size}/5)",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 0.6.sp
@@ -730,88 +815,6 @@ internal fun SpeedTestSection(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CbnMetricCard(
-    label: String,
-    value: String,
-    unit: String,
-    icon: ImageVector,
-    accentColor: Color,
-    modifier: Modifier = Modifier,
-    isHighlighted: Boolean = false,
-    sparklineSamples: List<Float>? = null
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = CbnDeepSlate,
-        border = BorderStroke(
-            width = if (isHighlighted) 1.5.dp else 1.dp,
-            color = if (isHighlighted) accentColor else CbnSlateBorder.copy(alpha = 0.75f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(13.dp)
-                    )
-                }
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = CbnSlateMuted,
-                    letterSpacing = 0.5.sp
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = value,
-                    fontFamily = JetBrainsMonoFontFamily,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    maxLines = 1
-                )
-                Text(
-                    text = unit,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CbnSlateMuted,
-                    modifier = Modifier.padding(bottom = 3.dp)
-                )
-            }
-
-            if (sparklineSamples != null) {
-                SpeedSparklineChart(
-                    samples = sparklineSamples,
-                    accentColor = accentColor,
-                    modifier = Modifier.testTag("sparkline_${label.lowercase(Locale.US)}")
-                )
             }
         }
     }

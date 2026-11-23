@@ -1,5 +1,7 @@
 package com.example.presentation.schedule
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -10,9 +12,11 @@ import com.example.data.local.UserSessionPrefs
 import com.example.data.remote.SseConnectionState
 import com.example.data.remote.SseEvent
 import com.example.data.remote.SseEventClient
+import com.example.domain.model.AccountDeactivatedException
 import com.example.domain.model.ActiveTaskLimitExceededException
 import com.example.domain.model.ActiveTaskLimitPolicy
 import com.example.domain.model.ActiveTaskLimitWarning
+import com.example.domain.model.DEACTIVATED_ACCOUNT_MESSAGE
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.FieldTechnician
 import com.example.domain.model.IndonesianHolidayCatalog
@@ -27,6 +31,7 @@ import com.example.domain.model.TaskDetailWorkspaceState
 import com.example.domain.model.TicketCategory
 import com.example.domain.repository.SyncResult
 import com.example.domain.repository.TaskRepository
+import com.example.util.AvatarUploadHelper
 import com.example.util.ConnectivityMonitor
 import com.example.util.TaskNotificationDispatcher
 import kotlinx.coroutines.Job
@@ -73,6 +78,9 @@ class ScheduleViewModel(
     private val pendingNotificationTaskIdFlow = MutableStateFlow<Long?>(null)
     private val isSyncingFlow = MutableStateFlow(false)
     private val isLoggingInFlow = MutableStateFlow(false)
+    private val isUploadingAvatarFlow = MutableStateFlow(false)
+    private val isUpdatingProfileFlow = MutableStateFlow(false)
+    private val profileErrorMessageFlow = MutableStateFlow<String?>(null)
     private val syncMessageFlow = MutableStateFlow<String?>(null)
     private val loginErrorMessageFlow = MutableStateFlow<String?>(null)
     private val sseStateFlow = MutableStateFlow(SseConnectionState.OFFLINE)
@@ -204,6 +212,9 @@ class ScheduleViewModel(
     private data class SyncAndSessionBundle(
         val isSyncing: Boolean,
         val isLoggingIn: Boolean,
+        val isUploadingAvatar: Boolean,
+        val isUpdatingProfile: Boolean,
+        val profileErrorMessage: String?,
         val syncMessage: String?,
         val lastSyncError: String?,
         val isNetworkOnline: Boolean,
@@ -307,11 +318,30 @@ class ScheduleViewModel(
         Triple(unsyncedCount, lastSyncError, isOnline)
     }
 
-    private val catalogsFlow = combine(
+    private data class ProfileMutationFlags(
+        val isUploadingAvatar: Boolean,
+        val isUpdatingProfile: Boolean,
+        val profileErrorMessage: String?
+    )
+
+    private val profileMutationFlagsFlow = combine(
+        isUploadingAvatarFlow,
+        isUpdatingProfileFlow,
+        profileErrorMessageFlow
+    ) { uploading, updating, error ->
+        ProfileMutationFlags(
+            isUploadingAvatar = uploading,
+            isUpdatingProfile = updating,
+            profileErrorMessage = error
+        )
+    }
+
+    private val catalogsAndProfileFlow = combine(
         repository.observeTechnicians(),
-        repository.observeOfficialLabels()
-    ) { technicians, labels ->
-        technicians to labels
+        repository.observeOfficialLabels(),
+        profileMutationFlagsFlow
+    ) { technicians, labels, profileFlags ->
+        Triple(technicians, labels, profileFlags)
     }
 
     private val syncAndSessionFlow = combine(
@@ -319,13 +349,16 @@ class ScheduleViewModel(
         syncDiagnosticsFlow,
         sessionStateFlow,
         localDarkOverrideFlow,
-        catalogsFlow
-    ) { flags, diagnostics, loadedSession, localDark, catalogs ->
+        catalogsAndProfileFlow
+    ) { flags, diagnostics, loadedSession, localDark, catalogsAndProfile ->
         val (unsyncedCount, lastSyncError, isOnline) = diagnostics
-        val (technicians, labels) = catalogs
+        val (technicians, labels, profileFlags) = catalogsAndProfile
         SyncAndSessionBundle(
             isSyncing = flags.isSyncing,
             isLoggingIn = flags.isLoggingIn,
+            isUploadingAvatar = profileFlags.isUploadingAvatar,
+            isUpdatingProfile = profileFlags.isUpdatingProfile,
+            profileErrorMessage = profileFlags.profileErrorMessage,
             syncMessage = flags.syncMessage,
             lastSyncError = lastSyncError,
             isNetworkOnline = isOnline,
@@ -444,8 +477,16 @@ class ScheduleViewModel(
 
         ScheduleUiState(
             currentUserId = currentUserId,
+            technicianUsername = syncBundle.session.technicianUsername,
             technicianName = techName,
             technicianRole = syncBundle.session.technicianRole.ifBlank { "admin" },
+            technicianAvatarUrl = syncBundle.session.avatarUrl,
+            technicianDepartment = syncBundle.session.department,
+            technicianSubDepartment = syncBundle.session.subDepartment,
+            technicianIsActive = syncBundle.session.isUserActive,
+            isUploadingAvatar = syncBundle.isUploadingAvatar,
+            isUpdatingProfile = syncBundle.isUpdatingProfile,
+            profileErrorMessage = syncBundle.profileErrorMessage,
             shiftStatus = resolvedShiftStatus,
             greetingTitle = buildGreeting(techName, hourOfDayProvider()),
             selectedEpochDay = controls.selectedEpochDay,
@@ -523,6 +564,7 @@ class ScheduleViewModel(
                 // Record startup sync timestamp so immediate onResume() right after cold launch
                 // does not fire a duplicate full GET /api/tasks sync.
                 lastResumeSyncAtMillis = clockMillisProvider()
+                launch { refreshMyProfileInternal() }
                 launch { repository.refreshCatalogsFromServer() }
                 launch { loadHolidaysForYear(initialYearMonth.first) }
                 triggerSyncInternal(isInitialBaselineSync = true, silentOnSuccess = true)
@@ -1444,6 +1486,7 @@ class ScheduleViewModel(
         val isAuthenticated = appPreferences == null || sessionStateFlow.value.prefs.authToken.isNotBlank()
         if (isAuthenticated && isNetworkOnlineFlow.value && !isSyncingFlow.value) {
             lastResumeSyncAtMillis = now
+            viewModelScope.launch { refreshMyProfileInternal() }
             triggerSyncInternal(isInitialBaselineSync = false, silentOnSuccess = true)
         }
     }
@@ -1622,13 +1665,17 @@ class ScheduleViewModel(
                         }
                     }
                     is SyncResult.AuthRequired -> {
-                        syncMessageFlow.value = result.message
-                        recordActivityNotification(
-                            severity = NotificationSeverity.WARNING,
-                            badgeText = "SESI TOKEN",
-                            title = "Autentikasi perlu diperbarui",
-                            subtitle = result.message
-                        )
+                        if (result.isAccountDeactivated) {
+                            handleAccountDeactivated(result.message)
+                        } else {
+                            syncMessageFlow.value = result.message
+                            recordActivityNotification(
+                                severity = NotificationSeverity.WARNING,
+                                badgeText = "SESI TOKEN",
+                                title = "Autentikasi perlu diperbarui",
+                                subtitle = result.message
+                            )
+                        }
                     }
                     is SyncResult.OfflineFallback -> {
                         if (!silentOnSuccess) {
@@ -1718,6 +1765,7 @@ class ScheduleViewModel(
                         loginErrorMessageFlow.value = null
                         syncTodayHorizon(selectToday = true)
                         syncMessageFlow.value = "Login berhasil! Mengunduh jadwal tiket..."
+                        launch { refreshMyProfileInternal() }
                         launch { repository.refreshCatalogsFromServer() }
                         triggerSyncInternal(isInitialBaselineSync = true)
                     },
@@ -1733,6 +1781,173 @@ class ScheduleViewModel(
         }
     }
 
+    fun refreshMyProfile() {
+        val isAuthenticated = appPreferences == null || sessionStateFlow.value.prefs.authToken.isNotBlank()
+        if (!isAuthenticated || !isNetworkOnlineFlow.value) return
+        viewModelScope.launch {
+            refreshMyProfileInternal()
+        }
+    }
+
+    private suspend fun refreshMyProfileInternal() {
+        val result = repository.refreshMyProfile()
+        result.onFailure { err ->
+            if (err is AccountDeactivatedException) {
+                handleAccountDeactivated(err.message ?: DEACTIVATED_ACCOUNT_MESSAGE)
+            }
+        }
+    }
+
+    fun uploadMyAvatar(context: Context, imageUri: Uri) {
+        if (isUploadingAvatarFlow.value) return
+        viewModelScope.launch {
+            isUploadingAvatarFlow.value = true
+            profileErrorMessageFlow.value = null
+            try {
+                val prepared = AvatarUploadHelper.prepareAvatarFromUri(context, imageUri)
+                prepared.fold(
+                    onSuccess = { payload ->
+                        uploadMyAvatarBytesInternal(payload.fileName, payload.mimeType, payload.bytes)
+                    },
+                    onFailure = { err ->
+                        val msg = err.localizedMessage ?: "Gagal memproses foto profil."
+                        profileErrorMessageFlow.value = msg
+                        syncMessageFlow.value = msg
+                    }
+                )
+            } finally {
+                isUploadingAvatarFlow.value = false
+            }
+        }
+    }
+
+    fun uploadMyAvatarBytes(fileName: String, mimeType: String, bytes: ByteArray) {
+        if (isUploadingAvatarFlow.value) return
+        viewModelScope.launch {
+            isUploadingAvatarFlow.value = true
+            profileErrorMessageFlow.value = null
+            try {
+                uploadMyAvatarBytesInternal(fileName, mimeType, bytes)
+            } finally {
+                isUploadingAvatarFlow.value = false
+            }
+        }
+    }
+
+    private suspend fun uploadMyAvatarBytesInternal(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray
+    ) {
+        repository.uploadMyAvatar(fileName = fileName, mimeType = mimeType, bytes = bytes).fold(
+            onSuccess = {
+                profileErrorMessageFlow.value = null
+                syncMessageFlow.value = "Foto profil berhasil diperbarui."
+            },
+            onFailure = { err ->
+                if (err is AccountDeactivatedException) {
+                    handleAccountDeactivated(err.message ?: DEACTIVATED_ACCOUNT_MESSAGE)
+                } else {
+                    val msg = err.localizedMessage ?: "Gagal mengunggah foto profil."
+                    profileErrorMessageFlow.value = msg
+                    syncMessageFlow.value = msg
+                }
+            }
+        )
+    }
+
+    fun deleteMyAvatar() {
+        if (isUploadingAvatarFlow.value) return
+        viewModelScope.launch {
+            isUploadingAvatarFlow.value = true
+            profileErrorMessageFlow.value = null
+            try {
+                repository.deleteMyAvatar().fold(
+                    onSuccess = {
+                        profileErrorMessageFlow.value = null
+                        syncMessageFlow.value = "Foto profil berhasil dihapus."
+                    },
+                    onFailure = { err ->
+                        if (err is AccountDeactivatedException) {
+                            handleAccountDeactivated(err.message ?: DEACTIVATED_ACCOUNT_MESSAGE)
+                        } else {
+                            val msg = err.localizedMessage ?: "Gagal menghapus foto profil."
+                            profileErrorMessageFlow.value = msg
+                            syncMessageFlow.value = msg
+                        }
+                    }
+                )
+            } finally {
+                isUploadingAvatarFlow.value = false
+            }
+        }
+    }
+
+    fun updateMyProfile(
+        displayName: String? = null,
+        password: String? = null,
+        department: String? = null,
+        subDepartment: String? = null,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        if (isUpdatingProfileFlow.value) return
+        viewModelScope.launch {
+            isUpdatingProfileFlow.value = true
+            profileErrorMessageFlow.value = null
+            try {
+                repository.updateMyProfile(
+                    displayName = displayName,
+                    password = password,
+                    department = department,
+                    subDepartment = subDepartment
+                ).fold(
+                    onSuccess = {
+                        profileErrorMessageFlow.value = null
+                        syncMessageFlow.value = if (!password.isNullOrEmpty()) {
+                            "Kata sandi & profil berhasil diperbarui."
+                        } else {
+                            "Profil teknisi berhasil diperbarui."
+                        }
+                        onSuccess?.invoke()
+                    },
+                    onFailure = { err ->
+                        if (err is AccountDeactivatedException) {
+                            handleAccountDeactivated(err.message ?: DEACTIVATED_ACCOUNT_MESSAGE)
+                        } else {
+                            val msg = err.localizedMessage ?: "Gagal menyimpan perubahan profil."
+                            profileErrorMessageFlow.value = msg
+                            syncMessageFlow.value = msg
+                        }
+                    }
+                )
+            } finally {
+                isUpdatingProfileFlow.value = false
+            }
+        }
+    }
+
+    fun clearProfileError() {
+        profileErrorMessageFlow.value = null
+    }
+
+    private suspend fun handleAccountDeactivated(message: String) {
+        selectedSheetTaskIdFlow.value = null
+        activeTaskLimitWarningFlow.value = null
+        detailWorkspaceJob?.cancel()
+        detailWorkspaceFlow.value = TaskDetailWorkspaceState()
+        pendingNotificationTaskIdFlow.value = null
+        profileErrorMessageFlow.value = null
+        syncMessageFlow.value = null
+        readNotificationIdsFlow.value = emptySet()
+        activityNotificationsFlow.value = emptyList()
+        resetDelegationBaseline(suppressUntilInitialSync = false)
+        resetDrawerFilters()
+        // Safe clear: preserves unsynced offline tasks (isSynced = false) in Room!
+        repository.clearSyncedCacheOnLogout()
+        appPreferences?.clearAuthToken()
+        loginErrorMessageFlow.value = message.ifBlank { DEACTIVATED_ACCOUNT_MESSAGE }
+    }
+
     fun logoutFromServer() {
         viewModelScope.launch {
             selectedSheetTaskIdFlow.value = null
@@ -1740,6 +1955,7 @@ class ScheduleViewModel(
             detailWorkspaceFlow.value = TaskDetailWorkspaceState()
             pendingNotificationTaskIdFlow.value = null
             loginErrorMessageFlow.value = null
+            profileErrorMessageFlow.value = null
             syncMessageFlow.value = null
             readNotificationIdsFlow.value = emptySet()
             activityNotificationsFlow.value = emptyList()

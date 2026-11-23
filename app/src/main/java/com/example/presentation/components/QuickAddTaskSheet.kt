@@ -450,7 +450,10 @@ fun QuickAddTaskSheet(
                     }
                 }
 
-                if (availableTechnicians.isEmpty()) {
+                val activeTechnicians = remember(availableTechnicians) {
+                    availableTechnicians.filter { it.isUserActive }
+                }
+                if (activeTechnicians.isEmpty()) {
                     val activeLabel = currentTechnicianName.trim().ifBlank { "Teknisi Aktif" }
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -458,7 +461,7 @@ fun QuickAddTaskSheet(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                     ) {
                         Text(
-                            text = "Default ditugaskan ke $activeLabel · Daftar tim dari server akan tampil otomatis saat online.",
+                            text = "Default ditugaskan ke $activeLabel · Daftar tim aktif dari server akan tampil otomatis saat online.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -469,9 +472,8 @@ fun QuickAddTaskSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        availableTechnicians.forEach { tech ->
+                        activeTechnicians.forEach { tech ->
                             val isSelected = tech.id in selectedAssigneeIds
-                            val initial = tech.resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "T"
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
@@ -483,37 +485,37 @@ fun QuickAddTaskSheet(
                                     }
                                 },
                                 leadingIcon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (isSelected) Color.White.copy(alpha = 0.24f)
-                                                else PingDuluNavy.copy(alpha = 0.14f)
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isSelected) {
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White.copy(alpha = 0.24f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
                                             Icon(
                                                 imageVector = Icons.Rounded.Check,
                                                 contentDescription = null,
                                                 tint = Color.White,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                        } else {
-                                            Text(
-                                                text = initial,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = PingDuluNavy
+                                                modifier = Modifier.size(14.dp)
                                             )
                                         }
+                                    } else {
+                                        UserAvatar(
+                                            avatarUrl = tech.avatarUrl,
+                                            displayName = tech.resolvedName,
+                                            size = 22.dp,
+                                            isActive = true,
+                                            showActiveBadge = false,
+                                            ringWidth = 1.dp
+                                        )
                                     }
                                 },
                                 label = {
                                     val suffix = if (tech.id == currentUserId) " (Anda)" else ""
+                                    val deptSuffix = tech.departmentDisplay?.let { " · $it" }.orEmpty()
                                     Text(
-                                        text = "${tech.resolvedName}$suffix",
+                                        text = "${tech.resolvedName}$suffix$deptSuffix",
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )

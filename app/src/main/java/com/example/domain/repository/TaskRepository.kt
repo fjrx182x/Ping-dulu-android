@@ -118,4 +118,25 @@ interface TaskRepository {
 
     suspend fun login(username: String, password: String): Result<String>
     suspend fun clearSyncedCacheOnLogout()
+
+    // Patch Ke-8: Technician Profile, 10 MB Avatar Upload & Soft-Deactivation Guard
+    suspend fun refreshMyProfile(): Result<com.example.domain.model.UserProfile> =
+        Result.failure(UnsupportedOperationException("Not implemented"))
+
+    suspend fun uploadMyAvatar(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray
+    ): Result<String> = Result.failure(UnsupportedOperationException("Not implemented"))
+
+    suspend fun deleteMyAvatar(): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Not implemented"))
+
+    suspend fun updateMyProfile(
+        displayName: String? = null,
+        password: String? = null,
+        department: String? = null,
+        subDepartment: String? = null
+    ): Result<com.example.domain.model.UserProfile> =
+        Result.failure(UnsupportedOperationException("Not implemented"))
 }

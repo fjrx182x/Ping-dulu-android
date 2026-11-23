@@ -25,11 +25,25 @@ object CatalogResponseParser {
                 .ifBlank { username }
                 .ifBlank { "Teknisi #$id" }
             val role = obj.optCleanString("role").ifBlank { "technician" }
+            val avatarUrl = obj.optCleanString("avatar_url").takeIf { it.isNotEmpty() }
+            val department = obj.optCleanString("department").takeIf { it.isNotEmpty() }
+            val subDepartment = obj.optCleanString("sub_department").takeIf { it.isNotEmpty() }
+            val isActive = when {
+                !obj.has("is_active") || obj.isNull("is_active") -> 1
+                else -> {
+                    val raw = obj.opt("is_active")
+                    if (parseFlexibleBoolean(raw)) 1 else 0
+                }
+            }
             result += FieldTechnician(
                 id = id,
                 username = username,
                 displayName = displayName,
-                role = role
+                role = role,
+                avatarUrl = avatarUrl,
+                department = department,
+                subDepartment = subDepartment,
+                isActive = isActive
             )
         }
         return result.distinctBy { it.id }

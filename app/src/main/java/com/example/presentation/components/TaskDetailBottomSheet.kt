@@ -951,7 +951,8 @@ fun TaskDetailBottomSheet(
             onDismiss = { showDelegateDialog = false },
             onConfirmSelection = { selectedIds ->
                 onDelegateTechnicians(task.id, selectedIds)
-            }
+            },
+            serverBaseUrl = serverBaseUrl
         )
     }
 

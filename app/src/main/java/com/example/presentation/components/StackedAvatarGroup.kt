@@ -85,24 +85,16 @@ fun StackedAvatarGroup(
                     .size(avatarSize),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(avatarSize)
-                        .clip(CircleShape)
-                        .background(bgColor)
-                        .border(width = ringWidth, color = ringColor, shape = CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = assignee.initial,
-                        color = Color.White,
-                        fontSize = (avatarSize.value * 0.42f).sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        lineHeight = (avatarSize.value * 0.46f).sp,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                UserAvatar(
+                    avatarUrl = assignee.avatarUrl,
+                    displayName = assignee.name,
+                    size = avatarSize,
+                    isActive = assignee.isUserActive,
+                    showActiveBadge = false,
+                    fallbackColor = bgColor,
+                    ringColor = ringColor,
+                    ringWidth = ringWidth
+                )
 
                 if (showLeadIndicator && assignee.isLead) {
                     Box(
@@ -158,20 +150,16 @@ fun AssigneeLeadChip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(avatarColorForAssignee(assignee)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = assignee.initial,
-                    color = Color.White,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
+            UserAvatar(
+                avatarUrl = assignee.avatarUrl,
+                displayName = assignee.name,
+                size = 20.dp,
+                isActive = assignee.isUserActive,
+                showActiveBadge = false,
+                fallbackColor = avatarColorForAssignee(assignee),
+                ringColor = MaterialTheme.colorScheme.surface,
+                ringWidth = 1.dp
+            )
             Text(
                 text = assignee.name,
                 style = MaterialTheme.typography.labelMedium,

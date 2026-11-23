@@ -25,15 +25,32 @@ data class FieldTechnician(
     val id: Long,
     val username: String,
     val displayName: String,
-    val role: String
+    val role: String,
+    val avatarUrl: String? = null,
+    val department: String? = null,
+    val subDepartment: String? = null,
+    val isActive: Int = 1
 ) {
     val resolvedName: String
         get() = displayName.trim().ifBlank { username.trim().ifBlank { "Teknisi #$id" } }
+
+    val isUserActive: Boolean
+        get() = isActive == 1
+
+    val isAdmin: Boolean
+        get() = role.trim().equals("admin", ignoreCase = true)
+
+    val isTechnician: Boolean
+        get() = isAdmin || role.trim().equals("technician", ignoreCase = true)
+
+    val departmentDisplay: String?
+        get() = formatDepartmentDisplay(department, subDepartment)
 
     val roleDisplayLabel: String
         get() = when (role.trim().lowercase()) {
             "admin" -> "Admin"
             "lead", "supervisor" -> "Lead"
+            "viewer" -> "Viewer"
             else -> "Teknisi"
         }
 }

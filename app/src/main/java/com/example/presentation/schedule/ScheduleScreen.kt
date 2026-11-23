@@ -65,6 +65,7 @@ import com.example.presentation.components.NotificationCenterSheet
 import com.example.presentation.components.StatusFilterPillRow
 import com.example.presentation.components.TaskGridCard
 import com.example.presentation.components.TaskListCard
+import com.example.presentation.components.UserAvatar
 import com.example.ui.theme.AvatarEmerald
 import com.example.ui.theme.P1Crimson
 import com.example.ui.theme.P2Amber
@@ -86,6 +87,7 @@ fun ScheduleScreen(
     onMarkAllNotificationsRead: () -> Unit,
     onOpenDrawer: () -> Unit,
     onResetDrawerFilters: () -> Unit,
+    onOpenProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showNotificationCenterSheet by remember { mutableStateOf(false) }
@@ -103,6 +105,7 @@ fun ScheduleScreen(
             onNotificationClick = {
                 showNotificationCenterSheet = true
             },
+            onProfileClick = onOpenProfile,
             onTriggerSync = onTriggerSync
         )
 
@@ -277,10 +280,10 @@ private fun ScheduleTopAppBar(
     onMenuClick: () -> Unit,
     onToggleTheme: () -> Unit,
     onNotificationClick: () -> Unit,
+    onProfileClick: () -> Unit,
     onTriggerSync: () -> Unit
 ) {
     val extendedColors = PingDuluTheme.extendedColors
-    val techInitial = uiState.technicianName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "F"
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -427,19 +430,19 @@ private fun ScheduleTopAppBar(
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(AvatarEmerald)
-                            .border(2.dp, AvatarEmerald.copy(alpha = 0.25f), CircleShape),
-                        contentAlignment = Alignment.Center
+                    IconButton(
+                        onClick = onProfileClick,
+                        modifier = Modifier.testTag("top_profile_avatar_button")
                     ) {
-                        Text(
-                            text = techInitial,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold
+                        UserAvatar(
+                            avatarUrl = uiState.technicianAvatarUrl,
+                            displayName = uiState.technicianName,
+                            size = 36.dp,
+                            isActive = uiState.technicianIsActive,
+                            showActiveBadge = true,
+                            serverBaseUrl = uiState.serverBaseUrl,
+                            ringColor = MaterialTheme.colorScheme.surface,
+                            ringWidth = 1.5.dp
                         )
                     }
                 }

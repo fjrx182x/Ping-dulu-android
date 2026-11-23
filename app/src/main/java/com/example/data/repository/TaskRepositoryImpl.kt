@@ -18,11 +18,14 @@ import com.example.data.remote.dto.StageUpdateDto
 import com.example.data.remote.dto.TaskDetailResponseParser
 import com.example.data.remote.dto.TaskPatchRequestDto
 import com.example.data.remote.dto.TimerActionRequestDto
+import com.example.data.remote.dto.UpdateUserRequestDto
 import com.example.data.remote.dto.toEntity
+import com.example.domain.model.AccountDeactivatedException
 import com.example.domain.model.ActiveTaskLimitExceededException
 import com.example.domain.model.ActiveTaskLimitPolicy
 import com.example.domain.model.Assignee
 import com.example.domain.model.ChecklistItem
+import com.example.domain.model.DEACTIVATED_ACCOUNT_MESSAGE
 import com.example.domain.model.DateEpochUtil
 import com.example.domain.model.FieldTechnician
 import com.example.domain.model.IndonesianHolidayCatalog
@@ -37,8 +40,11 @@ import com.example.domain.model.TaskAttachment
 import com.example.domain.model.TaskComment
 import com.example.domain.model.TaskDetailWorkspaceState
 import com.example.domain.model.TicketCategory
+import com.example.domain.model.UserProfile
+import com.example.domain.model.isDeactivatedAccountErrorPayload
 import com.example.domain.repository.SyncResult
 import com.example.domain.repository.TaskRepository
+import com.example.util.AvatarUploadHelper
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +56,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -226,9 +233,18 @@ class TaskRepositoryImpl(
         return try {
             val response = api.getTasks()
             if (response.code() == 401 || response.code() == 403) {
-                val msg = "Sesi token kedaluwarsa atau belum login (${response.code()}). Data lokal tetap aman."
+                val rawError = readErrorBodySnippet(response)
+                val isDeactivated = response.code() == 403 && isDeactivatedAccountErrorPayload(rawError)
+                val msg = if (isDeactivated) {
+                    DEACTIVATED_ACCOUNT_MESSAGE
+                } else {
+                    "Sesi token kedaluwarsa atau belum login (${response.code()}). Data lokal tetap aman."
+                }
                 lastSyncErrorFlow.value = msg
-                return SyncResult.AuthRequired(message = msg)
+                return SyncResult.AuthRequired(
+                    message = msg,
+                    isAccountDeactivated = isDeactivated
+                )
             }
             if (!response.isSuccessful) {
                 val err = formatHttpError(response, "GET /api/tasks")
@@ -1681,18 +1697,47 @@ class TaskRepositoryImpl(
             val body = response.body()
             val token = body?.resolvedToken
             if (response.isSuccessful && !token.isNullOrBlank()) {
+                val userDto = body.user
+                // Soft-deactivation guard even if backend returns 200 with is_active = 0
+                if (userDto != null && !userDto.isUserActive) {
+                    return@withContext Result.failure(
+                        AccountDeactivatedException(DEACTIVATED_ACCOUNT_MESSAGE)
+                    )
+                }
                 lastSyncErrorFlow.value = null
                 appPreferences?.saveAuthSession(
                     token = token,
-                    technicianName = body.user?.resolvedName ?: cleanUsername.ifBlank { "Teknisi" },
-                    role = body.user?.role ?: "technician",
-                    userId = body.user?.id ?: 0L
+                    technicianName = userDto?.resolvedName ?: cleanUsername.ifBlank { "Teknisi" },
+                    role = userDto?.role ?: "technician",
+                    userId = userDto?.id ?: 0L,
+                    username = userDto?.resolvedUsername?.ifBlank { cleanUsername } ?: cleanUsername,
+                    avatarUrl = userDto?.resolvedAvatarUrl,
+                    department = userDto?.resolvedDepartment,
+                    subDepartment = userDto?.resolvedSubDepartment,
+                    isActive = userDto?.resolvedIsActive ?: 1
                 )
                 Result.success(token)
             } else {
+                val rawError = readErrorBodySnippet(response)
+                if (response.code() == 403) {
+                    // Server returns HTTP 403 specifically when users.is_active == 0
+                    val deactivatedMsg = if (isDeactivatedAccountErrorPayload(rawError) || rawError.isBlank()) {
+                        DEACTIVATED_ACCOUNT_MESSAGE
+                    } else {
+                        extractReadableMessage(rawError).ifBlank { DEACTIVATED_ACCOUNT_MESSAGE }
+                    }
+                    return@withContext Result.failure(AccountDeactivatedException(deactivatedMsg))
+                }
                 val message = when (response.code()) {
-                    401, 403 -> "Username atau kata sandi salah (HTTP ${response.code()})."
-                    else -> "Login gagal (HTTP ${response.code()}). Periksa koneksi ke ping.fjrx.my.id."
+                    401 -> "Username atau kata sandi salah (HTTP 401)."
+                    else -> {
+                        val parsed = extractReadableMessage(rawError)
+                        if (parsed.isNotBlank()) {
+                            "Login gagal (HTTP ${response.code()}): $parsed"
+                        } else {
+                            "Login gagal (HTTP ${response.code()}). Periksa koneksi ke ping.fjrx.my.id."
+                        }
+                    }
                 }
                 Result.failure(IllegalStateException(message))
             }
@@ -1710,6 +1755,227 @@ class TaskRepositoryImpl(
     override suspend fun clearSyncedCacheOnLogout() = withContext(Dispatchers.IO) {
         lastSyncErrorFlow.value = null
         taskDao.deleteAllSyncedTasks()
+    }
+
+    override suspend fun refreshMyProfile(): Result<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiServiceProvider().getMyProfile()
+            if (response.code() == 403) {
+                val rawError = readErrorBodySnippet(response)
+                if (isDeactivatedAccountErrorPayload(rawError) || rawError.isBlank()) {
+                    return@withContext Result.failure(AccountDeactivatedException(DEACTIVATED_ACCOUNT_MESSAGE))
+                }
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "GET /api/auth/me", rawError)))
+            }
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "GET /api/auth/me")))
+            }
+            val userDto = response.body()?.resolvedUser
+                ?: return@withContext Result.failure(IllegalStateException("Respons profil tidak memuat data pengguna."))
+            if (!userDto.isUserActive) {
+                return@withContext Result.failure(AccountDeactivatedException(DEACTIVATED_ACCOUNT_MESSAGE))
+            }
+            val profile = userDto.toUserProfile()
+            appPreferences?.updateUserProfile(
+                userId = profile.id.takeIf { it > 0L },
+                username = profile.username.takeIf { it.isNotBlank() },
+                displayName = profile.displayName.takeIf { it.isNotBlank() },
+                role = profile.role.takeIf { it.isNotBlank() },
+                avatarUrl = profile.avatarUrl,
+                clearAvatarIfNull = true,
+                department = profile.department.orEmpty(),
+                subDepartment = profile.subDepartment.orEmpty(),
+                isActive = profile.isActive
+            )
+            Result.success(profile)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun uploadMyAvatar(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val normalizedMime = AvatarUploadHelper.normalizeMimeType(mimeType).ifEmpty { "image/jpeg" }
+            if (normalizedMime !in setOf("image/jpeg", "image/png", "image/webp", "image/gif")) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Hanya file gambar (JPEG, PNG, WebP, GIF) yang diperbolehkan.")
+                )
+            }
+            if (bytes.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("File gambar kosong."))
+            }
+            if (bytes.size > AvatarUploadHelper.MAX_FILE_SIZE_BYTES) {
+                val sizeMb = String.format(java.util.Locale.US, "%.1f", bytes.size / (1024f * 1024f))
+                return@withContext Result.failure(
+                    IllegalArgumentException("Ukuran gambar ($sizeMb MB) melebihi batas maksimal 10 MB.")
+                )
+            }
+
+            val userId = resolveCurrentUserIdForProfile()
+                ?: return@withContext Result.failure(
+                    IllegalStateException("ID pengguna tidak tersedia. Silakan login ulang.")
+                )
+            val safeFileName = fileName.trim().ifBlank {
+                "avatar_${System.currentTimeMillis()}.${AvatarUploadHelper.extensionForMime(normalizedMime)}"
+            }
+            val part = MultipartBody.Part.createFormData(
+                "file",
+                safeFileName,
+                bytes.toRequestBody(normalizedMime.toMediaType())
+            )
+            val response = apiServiceProvider().uploadUserAvatar(userId = userId, file = part)
+            if (response.code() == 403) {
+                val rawError = readErrorBodySnippet(response)
+                if (isDeactivatedAccountErrorPayload(rawError)) {
+                    return@withContext Result.failure(AccountDeactivatedException(DEACTIVATED_ACCOUNT_MESSAGE))
+                }
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "POST avatar", rawError)))
+            }
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "POST avatar")))
+            }
+            val body = response.body()
+            val newAvatarUrl = body?.avatarUrl?.trim()?.takeIf { it.isNotEmpty() }
+            if (newAvatarUrl != null) {
+                appPreferences?.updateAvatarUrl(newAvatarUrl)
+                runCatching { refreshCatalogsFromServer() }
+                Result.success(newAvatarUrl)
+            } else {
+                // Fallback: re-fetch /api/auth/me if server omitted avatar_url in 200 payload
+                val refreshed = refreshMyProfile().getOrNull()?.avatarUrl
+                if (!refreshed.isNullOrBlank()) {
+                    Result.success(refreshed)
+                } else {
+                    Result.failure(IllegalStateException("Server tidak mengembalikan URL avatar baru."))
+                }
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deleteMyAvatar(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val userId = resolveCurrentUserIdForProfile()
+                ?: return@withContext Result.failure(
+                    IllegalStateException("ID pengguna tidak tersedia. Silakan login ulang.")
+                )
+            val response = apiServiceProvider().deleteUserAvatar(userId = userId)
+            if (response.code() == 403) {
+                val rawError = readErrorBodySnippet(response)
+                if (isDeactivatedAccountErrorPayload(rawError)) {
+                    return@withContext Result.failure(AccountDeactivatedException(DEACTIVATED_ACCOUNT_MESSAGE))
+                }
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "DELETE avatar", rawError)))
+            }
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "DELETE avatar")))
+            }
+            appPreferences?.updateAvatarUrl(null)
+            runCatching { refreshCatalogsFromServer() }
+            Result.success(Unit)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updateMyProfile(
+        displayName: String?,
+        password: String?,
+        department: String?,
+        subDepartment: String?
+    ): Result<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            val userId = resolveCurrentUserIdForProfile()
+                ?: return@withContext Result.failure(
+                    IllegalStateException("ID pengguna tidak tersedia. Silakan login ulang.")
+                )
+            val cleanDisplayName = displayName?.trim()?.takeIf { it.isNotEmpty() }
+            val cleanPassword = password?.takeIf { it.isNotEmpty() }
+            val cleanDept = department?.trim()
+            val cleanSubDept = subDepartment?.trim()
+            if (cleanPassword != null && cleanPassword.length < 4) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Kata sandi baru minimal 4 karakter.")
+                )
+            }
+            val request = UpdateUserRequestDto(
+                displayName = cleanDisplayName,
+                password = cleanPassword,
+                department = cleanDept,
+                subDepartment = cleanSubDept
+            )
+            val response = apiServiceProvider().updateUserProfile(userId = userId, request = request)
+            if (response.code() == 403) {
+                val rawError = readErrorBodySnippet(response)
+                if (isDeactivatedAccountErrorPayload(rawError)) {
+                    return@withContext Result.failure(AccountDeactivatedException(DEACTIVATED_ACCOUNT_MESSAGE))
+                }
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "PATCH profile", rawError)))
+            }
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(IllegalStateException(formatHttpError(response, "PATCH profile")))
+            }
+            val returnedUser = response.body()?.user?.toUserProfile()
+            if (returnedUser != null) {
+                appPreferences?.updateUserProfile(
+                    userId = returnedUser.id.takeIf { it > 0L },
+                    username = returnedUser.username.takeIf { it.isNotBlank() },
+                    displayName = returnedUser.displayName.takeIf { it.isNotBlank() },
+                    role = returnedUser.role.takeIf { it.isNotBlank() },
+                    avatarUrl = returnedUser.avatarUrl,
+                    clearAvatarIfNull = true,
+                    department = returnedUser.department.orEmpty(),
+                    subDepartment = returnedUser.subDepartment.orEmpty(),
+                    isActive = returnedUser.isActive
+                )
+                runCatching { refreshCatalogsFromServer() }
+                Result.success(returnedUser)
+            } else {
+                appPreferences?.updateUserProfile(
+                    displayName = cleanDisplayName,
+                    department = cleanDept,
+                    subDepartment = cleanSubDept
+                )
+                val fallbackPrefs = runCatching { appPreferences?.sessionFlow?.first() }.getOrNull()
+                Result.success(
+                    UserProfile(
+                        id = userId,
+                        username = fallbackPrefs?.technicianUsername.orEmpty(),
+                        displayName = cleanDisplayName ?: fallbackPrefs?.technicianName.orEmpty().ifBlank { "Teknisi" },
+                        role = fallbackPrefs?.technicianRole.orEmpty().ifBlank { "technician" },
+                        avatarUrl = fallbackPrefs?.avatarUrl,
+                        department = cleanDept ?: fallbackPrefs?.department,
+                        subDepartment = cleanSubDept ?: fallbackPrefs?.subDepartment,
+                        isActive = fallbackPrefs?.isActive ?: 1
+                    )
+                )
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun resolveCurrentUserIdForProfile(): Long? {
+        val cached = appPreferences?.getUserId()?.takeIf { it > 0L }
+        if (cached != null) return cached
+        val fromStore = runCatching { appPreferences?.sessionFlow?.first()?.userId }
+            .getOrNull()
+            ?.takeIf { it > 0L }
+        if (fromStore != null) return fromStore
+        return refreshMyProfile().getOrNull()?.id?.takeIf { it > 0L }
     }
 
     private suspend fun generateCollisionFreeTicketCode(

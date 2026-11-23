@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.remote.PingDuluApiService
 import com.example.data.remote.SseConnectionState
+import com.example.presentation.components.UserAvatar
 import com.example.presentation.schedule.ScheduleUiState
 import com.example.presentation.schedule.SyncStatusBadge
 import com.example.ui.theme.AvatarEmerald
@@ -75,6 +76,7 @@ fun SettingsSyncScreen(
     onLogout: () -> Unit,
     onToggleTheme: () -> Unit,
     onOpenSpkHistory: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val completedSpkCount = remember(uiState.allTasks) {
@@ -167,67 +169,82 @@ fun SettingsSyncScreen(
                         Column(
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            Surface(
+                                onClick = onOpenProfile,
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.White.copy(alpha = 0.08f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_open_profile_card")
                             ) {
-                                Box(
+                                Row(
                                     modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(AvatarEmerald)
-                                        .border(2.dp, Color.White.copy(alpha = 0.45f), CircleShape),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Text(
-                                        text = uiState.technicianName.trim().take(1).uppercase().ifEmpty { "T" },
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold
+                                    UserAvatar(
+                                        avatarUrl = uiState.technicianAvatarUrl,
+                                        displayName = uiState.technicianName,
+                                        size = 48.dp,
+                                        isActive = uiState.technicianIsActive,
+                                        showActiveBadge = true,
+                                        serverBaseUrl = uiState.serverBaseUrl,
+                                        ringColor = Color.White.copy(alpha = 0.65f),
+                                        ringWidth = 2.dp
                                     )
-                                }
 
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = "AKUN SEDANG LOGIN",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.72f)
-                                    )
-                                    Text(
-                                        text = "${uiState.technicianName} (${uiState.technicianRole})",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.testTag("settings_logged_in_user")
-                                    )
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = Color.White.copy(alpha = 0.16f)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.VerifiedUser,
-                                            contentDescription = "Sesi terverifikasi",
-                                            tint = StopwatchMint,
-                                            modifier = Modifier.size(14.dp)
+                                        Text(
+                                            text = "AKUN SEDANG LOGIN · KETUK PROFIL",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.72f)
                                         )
                                         Text(
-                                            text = uiState.shiftStatus.label,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White
+                                            text = "${uiState.technicianName} (${uiState.technicianRole})",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.testTag("settings_logged_in_user")
                                         )
+                                        uiState.technicianDepartmentDisplay?.let { dept ->
+                                            Text(
+                                                text = dept,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = StopwatchMint,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = Color.White.copy(alpha = 0.16f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.VerifiedUser,
+                                                contentDescription = "Sesi terverifikasi",
+                                                tint = StopwatchMint,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = uiState.shiftStatus.label,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
                                 }
                             }

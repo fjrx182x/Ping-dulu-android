@@ -376,6 +376,11 @@ private class AntiVanishFakeApiService : PingDuluApiService {
     override suspend fun getHolidays(year: Int): Response<HolidayResponseDto> = error("unused")
     override suspend fun getCalendar(year: Int, month: Int): Response<CalendarAgendaResponseDto> = error("unused")
     override suspend fun postSpeedTestRecord(body: SpeedTestRecordRequestDto): Response<ResponseBody> = error("unused")
+    override suspend fun getSpeedTestRecordsRaw(): Response<ResponseBody> = error("unused")
+    override suspend fun getMyProfile(): Response<com.example.data.remote.dto.AuthMeResponseDto> = error("unused")
+    override suspend fun uploadUserAvatar(userId: Long, file: MultipartBody.Part): Response<com.example.data.remote.dto.AvatarUploadResponseDto> = error("unused")
+    override suspend fun deleteUserAvatar(userId: Long): Response<com.example.data.remote.dto.UserMutationResponseDto> = error("unused")
+    override suspend fun updateUserProfile(userId: Long, request: com.example.data.remote.dto.UpdateUserRequestDto): Response<com.example.data.remote.dto.UserMutationResponseDto> = error("unused")
 }
 
 private class AntiVanishViewModelFakeRepo(initial: List<Task>) : TaskRepository {

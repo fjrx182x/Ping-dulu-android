@@ -114,3 +114,22 @@ val KalemAmberSoftText = Color(0xFFFEF3C7)
 val KalemDarkCard = Color(0xFF0F172A)
 val KalemDarkInner = Color(0xFF1E293B)
 
+// Patch Ke-8: UserAvatar, Profile Badges & Dual-Mode Speedtest Palette
+val AvatarGradientStart = Color(0xFF2563EB)
+val AvatarGradientEnd = Color(0xFF4F46E5)
+val ActiveStatusEmerald = Color(0xFF10B981)
+val InactiveStatusSlate = Color(0xFF94A3B8)
+val RoleAdminRoseBgLight = Color(0xFFFFF1F2)
+val RoleAdminRoseFgLight = Color(0xFFE11D48)
+val RoleAdminRoseBorderLight = Color(0xFFFECDD3)
+val RoleAdminRoseBgDark = Color(0xFF4C0519)
+val RoleAdminRoseFgDark = Color(0xFFFDA4AF)
+val RoleTechCobaltBgLight = Color(0xFFEFF6FF)
+val RoleTechCobaltFgLight = Color(0xFF2563EB)
+val RoleTechCobaltBorderLight = Color(0xFFBFDBFE)
+val RoleTechCobaltBgDark = Color(0xFF172554)
+val RoleTechCobaltFgDark = Color(0xFF93C5FD)
+val Edge100gBadgeBg = Color(0xFF1D4ED8)
+val Edge100gBadgeText = Color(0xFFDBEAFE)
+
+

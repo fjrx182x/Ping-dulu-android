@@ -14,6 +14,7 @@ sealed interface SyncResult {
     ) : SyncResult
 
     data class AuthRequired(
-        val message: String
+        val message: String,
+        val isAccountDeactivated: Boolean = false
     ) : SyncResult
 }

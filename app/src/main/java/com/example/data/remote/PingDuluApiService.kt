@@ -2,6 +2,8 @@ package com.example.data.remote
 
 import com.example.data.remote.dto.AddChecklistStepRequestDto
 import com.example.data.remote.dto.AddCommentRequestDto
+import com.example.data.remote.dto.AuthMeResponseDto
+import com.example.data.remote.dto.AvatarUploadResponseDto
 import com.example.data.remote.dto.CalendarAgendaResponseDto
 import com.example.data.remote.dto.ChecklistStepToggleDto
 import com.example.data.remote.dto.ClaimTaskResponseDto
@@ -15,6 +17,8 @@ import com.example.data.remote.dto.StageUpdateDto
 import com.example.data.remote.dto.TaskPatchRequestDto
 import com.example.data.remote.dto.TaskResponseDto
 import com.example.data.remote.dto.TimerActionRequestDto
+import com.example.data.remote.dto.UpdateUserRequestDto
+import com.example.data.remote.dto.UserMutationResponseDto
 import com.example.data.remote.dto.WorkTaskResponseDto
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
@@ -35,6 +39,31 @@ interface PingDuluApiService {
     suspend fun login(
         @Body body: LoginRequestDto
     ): Response<LoginResponseDto>
+
+    // Patch Ke-8: Fresh authenticated profile & soft-deactivation check
+    @GET("api/auth/me")
+    suspend fun getMyProfile(): Response<AuthMeResponseDto>
+
+    // Patch Ke-8: Avatar photo upload (max 10 MB, field "file")
+    @Multipart
+    @POST("api/users/{id}/avatar")
+    suspend fun uploadUserAvatar(
+        @Path("id") userId: Long,
+        @Part file: MultipartBody.Part
+    ): Response<AvatarUploadResponseDto>
+
+    // Patch Ke-8: Delete avatar photo
+    @DELETE("api/users/{id}/avatar")
+    suspend fun deleteUserAvatar(
+        @Path("id") userId: Long
+    ): Response<UserMutationResponseDto>
+
+    // Patch Ke-8: Self-service profile / password update
+    @PATCH("api/users/{id}")
+    suspend fun updateUserProfile(
+        @Path("id") userId: Long,
+        @Body request: UpdateUserRequestDto
+    ): Response<UserMutationResponseDto>
 
     @GET("api/users")
     suspend fun getUsersRaw(): Response<ResponseBody>
@@ -152,11 +181,14 @@ interface PingDuluApiService {
         @Query("month") month: Int
     ): Response<CalendarAgendaResponseDto>
 
-    // Patch Ke-7: Speed Test Record Persistence
+    // Patch Ke-7 & Ke-8: Speed Test Record Persistence & History
     @POST("api/speedtest/records")
     suspend fun postSpeedTestRecord(
         @Body body: SpeedTestRecordRequestDto
     ): Response<ResponseBody>
+
+    @GET("api/speedtest/records")
+    suspend fun getSpeedTestRecordsRaw(): Response<ResponseBody>
 
     companion object {
         const val FIXED_BASE_URL = "https://ping.fjrx.my.id/"

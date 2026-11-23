@@ -503,4 +503,14 @@ private class NoOpEfficiencyApiService : PingDuluApiService {
         Response.success(ResponseBody.create(null, "{}"))
     override suspend fun postSpeedTestRecord(body: com.example.data.remote.dto.SpeedTestRecordRequestDto): Response<ResponseBody> =
         Response.success(ResponseBody.create(null, "{}"))
+    override suspend fun getSpeedTestRecordsRaw(): Response<ResponseBody> =
+        Response.success(ResponseBody.create(null, "[]"))
+    override suspend fun getMyProfile(): Response<com.example.data.remote.dto.AuthMeResponseDto> =
+        Response.success(com.example.data.remote.dto.AuthMeResponseDto(success = true))
+    override suspend fun uploadUserAvatar(userId: Long, file: okhttp3.MultipartBody.Part): Response<com.example.data.remote.dto.AvatarUploadResponseDto> =
+        Response.success(com.example.data.remote.dto.AvatarUploadResponseDto(success = true))
+    override suspend fun deleteUserAvatar(userId: Long): Response<com.example.data.remote.dto.UserMutationResponseDto> =
+        Response.success(com.example.data.remote.dto.UserMutationResponseDto(success = true))
+    override suspend fun updateUserProfile(userId: Long, request: com.example.data.remote.dto.UpdateUserRequestDto): Response<com.example.data.remote.dto.UserMutationResponseDto> =
+        Response.success(com.example.data.remote.dto.UserMutationResponseDto(success = true))
 }

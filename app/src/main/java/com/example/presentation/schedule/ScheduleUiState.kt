@@ -93,8 +93,16 @@ data class StatusFilterCounts(
 @Immutable
 data class ScheduleUiState(
     val currentUserId: Long = 0L,
+    val technicianUsername: String = "",
     val technicianName: String = "Fajar",
     val technicianRole: String = "admin",
+    val technicianAvatarUrl: String? = null,
+    val technicianDepartment: String? = null,
+    val technicianSubDepartment: String? = null,
+    val technicianIsActive: Boolean = true,
+    val isUploadingAvatar: Boolean = false,
+    val isUpdatingProfile: Boolean = false,
+    val profileErrorMessage: String? = null,
     val shiftStatus: ShiftStatus = ShiftStatus.ON_DUTY,
     val greetingTitle: String = "Selamat Pagi, Fajar",
     val selectedEpochDay: Long = DateEpochUtil.todayEpochDay(),
@@ -144,6 +152,12 @@ data class ScheduleUiState(
 
     val isAuthenticated: Boolean
         get() = isLoggedIn
+
+    val resolvedAvatarUrl: String?
+        get() = com.example.domain.model.resolveAvatarUrl(serverBaseUrl, technicianAvatarUrl)
+
+    val technicianDepartmentDisplay: String?
+        get() = com.example.domain.model.formatDepartmentDisplay(technicianDepartment, technicianSubDepartment)
 
     val activeDrawerFilterCount: Int
         get() = (if (onlyMyTickets) 1 else 0) +
